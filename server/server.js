@@ -12,6 +12,7 @@ import fs from 'fs';
 import { Anthropic } from '@anthropic-ai/sdk';
 import sharp from 'sharp';
 import { Database } from 'bun:sqlite';
+import { authMiddleware, optionalAuthMiddleware } from './auth-middleware.js';
 
 // Get environment variables
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
@@ -42,7 +43,8 @@ function initializeDatabase() {
       imageUrl TEXT,
       timestamp INTEGER NOT NULL,
       description TEXT,
-      healthScore INTEGER
+      healthScore INTEGER,
+      userId TEXT
     )
   `);
 

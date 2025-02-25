@@ -1,5 +1,6 @@
 import { Meal } from '../types';
 import { getSettings, saveSettings } from './storage';
+import { auth } from '../lib/firebase/firebase';
 
 // API Base URL
 const API_BASE_URL = 'http://localhost:3002/api';
@@ -16,6 +17,39 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+/**
+ * Get authentication token for API requests
+ */
+const getAuthToken = async (): Promise<string | null> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    return null;
+  }
+  
+  try {
+    return await currentUser.getIdToken(true);
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
+  }
+};
+
+/**
+ * Add authentication headers to fetch options
+ */
+const withAuth = async (options: RequestInit = {}): Promise<RequestInit> => {
+  const token = await getAuthToken();
+  
+  return {
+    ...options,
+    headers: {
+      ...options.headers,
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    }
+  };
+};
 
 // Settings API - we'll keep settings in localStorage for simplicity
 export const SettingsApi = {
@@ -36,7 +70,8 @@ export const MealsApi = {
   // Get all meals from the server
   getAll: async (): Promise<Meal[]> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/meals`);
+      const options = await withAuth();
+      const response = await fetch(`${API_BASE_URL}/meals`, options);
       const data = await response.json();
       
       if (data.success) {
@@ -54,7 +89,8 @@ export const MealsApi = {
   // Get today's meals from the server
   getToday: async (): Promise<Meal[]> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/meals/today`);
+      const options = await withAuth();
+      const response = await fetch(`${API_BASE_URL}/meals/today`, options);
       const data = await response.json();
       
       if (data.success) {
@@ -72,13 +108,12 @@ export const MealsApi = {
   // Add a new meal to the server
   add: async (meal: Omit<Meal, 'id'>): Promise<{ success: boolean; data?: Meal; message?: string }> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/meals`, {
+      const options = await withAuth({
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify(meal)
       });
+      
+      const response = await fetch(`${API_BASE_URL}/meals`, options);
       
       return await response.json();
     } catch (error) {
@@ -93,9 +128,11 @@ export const MealsApi = {
   // Delete a meal from the server
   delete: async (id: string): Promise<{ success: boolean; message?: string }> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/meals/${id}`, {
+      const options = await withAuth({
         method: 'DELETE'
       });
+      
+      const response = await fetch(`${API_BASE_URL}/meals/${id}`, options);
       
       return await response.json();
     } catch (error) {
@@ -110,9 +147,11 @@ export const MealsApi = {
   // Clear all meals (for testing/admin purposes)
   clearAll: async (): Promise<{ success: boolean; message?: string }> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/meals`, {
+      const options = await withAuth({
         method: 'DELETE'
       });
+      
+      const response = await fetch(`${API_BASE_URL}/meals`, options);
       
       return await response.json();
     } catch (error) {
@@ -153,8 +192,16 @@ export const MealAnalysisApi = {
     formData.append('image', imageFile);
     
     try {
+      const token = await getAuthToken();
+      
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/analyze-image`, {
         method: 'POST',
+        headers,
         body: formData,
       });
       

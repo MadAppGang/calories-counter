@@ -48,3 +48,51 @@ export default tseslint.config({
   },
 })
 ```
+
+## Firebase Authentication
+
+This application uses Firebase Authentication for user management.
+
+### Setup Firebase
+
+1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com/)
+2. Enable Email/Password authentication in the Authentication section
+3. Copy your Firebase web config from Project Settings > General > Your apps
+4. Create a Firebase service account for server-side authentication
+   - Go to Project Settings > Service Accounts
+   - Click "Generate new private key"
+   - Save the JSON file securely
+
+### Configuration
+
+#### Client Configuration
+
+Create a `.env.local` file in the client directory with the following content:
+
+```
+VITE_FIREBASE_API_KEY=your-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-app.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=your-messaging-sender-id
+VITE_FIREBASE_APP_ID=your-app-id
+VITE_FIREBASE_MEASUREMENT_ID=your-measurement-id
+```
+
+#### Server Configuration
+
+Update your `.env` file in the server directory:
+
+```
+# Firebase Admin SDK configuration
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=your-client-email@example.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nyour-private-key-here\n-----END PRIVATE KEY-----\n"
+```
+
+### Authentication Flow
+
+1. Users can sign up and log in using email/password
+2. When a user is authenticated, all API calls include a JWT token in the Authorization header
+3. The server verifies the token using Firebase Admin SDK
+4. Each user can only access their own data
