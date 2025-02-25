@@ -398,7 +398,9 @@ app.post('/api/analyze-image', async (c) => {
         return c.json({
           success: true,
           name: result.name,
+          description: result.description,
           calories: result.calories,
+          healthScore: result.healthScore,
           message: "Food analyzed with AI"
         });
       } else {
@@ -501,11 +503,15 @@ app.post('/api/analyze-stream', async (c) => {
         if (result.success) {
           await stream.write(`Analysis complete!\n`);
           await stream.write(`Food: ${result.name}\n`);
+          await stream.write(`Description: ${result.description}\n`);
           await stream.write(`Calories: ${result.calories}\n`);
+          await stream.write(`Health Score: ${result.healthScore}\n`);
           await stream.write(JSON.stringify({
             success: true,
             name: result.name,
-            calories: result.calories
+            description: result.description,
+            calories: result.calories,
+            healthScore: result.healthScore
           }, null, 2));
         } else {
           await stream.write(`Analysis failed: ${result.error}\n`);
@@ -623,14 +629,14 @@ async function sendImageToAnthropicAPI(anthropic, base64Image, mediaType) {
       model: "claude-3-sonnet-20240229",
       max_tokens: 1000,
       temperature: 0.7,
-      system: "You are a food analysis assistant that helps identify foods and estimate their caloric content.",
+      system: "You are a food analysis assistant that helps identify foods, estimate their caloric content, and evaluate their healthiness.",
       messages: [
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Please analyze this food image. Identify what food item(s) are in the image and estimate the calorie count. Return your response in JSON format with two fields: 'name' (a brief description of the food) and 'calories' (your estimate of calories as a number)."
+              text: "Please analyze this food image. Identify what food item(s) are in the image and estimate the calorie count and healthiness. Return your response in JSON format with four fields: 'title' (a brief name of the food), 'description' (a detailed description of the food including ingredients and preparation style), 'calories' (your estimate of calories as a number), and 'healthRating' (an integer from 1 to 5, where 1 means highly processed unhealthy food and 5 means whole/nutritious healthy food)."
             },
             {
               type: "image",
@@ -651,7 +657,7 @@ async function sendImageToAnthropicAPI(anthropic, base64Image, mediaType) {
 
     // Extract the JSON part from Claude's response
     // This regex looks for a JSON object anywhere in the text
-    const jsonMatch = claudeResponse.match(/\{[\s\S]*"name"[\s\S]*"calories"[\s\S]*\}/);
+    const jsonMatch = claudeResponse.match(/\{[\s\S]*"title"[\s\S]*"description"[\s\S]*"calories"[\s\S]*"healthRating"[\s\S]*\}/);
 
     if (jsonMatch) {
       try {
@@ -660,8 +666,10 @@ async function sendImageToAnthropicAPI(anthropic, base64Image, mediaType) {
 
         return {
           success: true,
-          name: parsedResponse.name,
-          calories: parseInt(parsedResponse.calories, 10) || 0
+          name: parsedResponse.title,
+          description: parsedResponse.description,
+          calories: parseInt(parsedResponse.calories, 10) || 0,
+          healthScore: parsedResponse.healthRating || 3 // Default to middle value if missing
         };
       } catch (jsonError) {
         console.error('Error parsing Claude response as JSON:', jsonError);
@@ -669,15 +677,19 @@ async function sendImageToAnthropicAPI(anthropic, base64Image, mediaType) {
     }
 
     // If JSON extraction fails, attempt to parse the response differently
-    // Look for patterns like "name: Pizza" and "calories: 350"
-    const nameMatch = claudeResponse.match(/name[:\s]+([^,\n\.]+)/i);
+    // Look for patterns like "title: Pizza" and "calories: 350"
+    const titleMatch = claudeResponse.match(/title[:\s]+([^,\n\.]+)/i);
+    const descriptionMatch = claudeResponse.match(/description[:\s]+([^,\n\.]+)/i);
     const caloriesMatch = claudeResponse.match(/calories[:\s]+(\d+)/i);
+    const healthRatingMatch = claudeResponse.match(/health[Rr]ating[:\s]+(\d+)/i);
 
-    if (nameMatch && caloriesMatch) {
+    if (titleMatch && caloriesMatch) {
       return {
         success: true,
-        name: nameMatch[1].trim(),
-        calories: parseInt(caloriesMatch[1], 10) || 0
+        name: titleMatch[1].trim(),
+        description: descriptionMatch ? descriptionMatch[1].trim() : titleMatch[1].trim(),
+        calories: parseInt(caloriesMatch[1], 10) || 0,
+        healthScore: healthRatingMatch ? parseInt(healthRatingMatch[1], 10) : 3
       };
     }
 

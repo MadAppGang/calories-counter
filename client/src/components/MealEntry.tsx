@@ -11,7 +11,9 @@ const MealEntry: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [mealName, setMealName] = useState<string>('');
+  const [mealDescription, setMealDescription] = useState<string>('');
   const [calories, setCalories] = useState<number>(0);
+  const [healthScore, setHealthScore] = useState<number>(3); // Default to neutral
   const navigate = useNavigate();
 
   // Function to create a thumbnail from the full image
@@ -99,7 +101,9 @@ const MealEntry: React.FC = () => {
       const result = await MealAnalysisApi.analyzeImage(image);
       
       setMealName(result.name);
+      setMealDescription(result.description);
       setCalories(result.calories);
+      setHealthScore(result.healthScore); // Save the health score from AI
     } catch (error) {
       console.error('Error analyzing image:', error);
       alert('Error analyzing image. Please try again.');
@@ -122,9 +126,11 @@ const MealEntry: React.FC = () => {
       // Save meal to server with the smaller thumbnail image
       const result = await MealsApi.add({
         name: mealName,
+        description: mealDescription,
         calories,
         imageUrl: thumbnailImage, // Use the thumbnail instead of full-size image
         timestamp: Date.now(),
+        healthScore, // Include health score in the saved data
       });
       
       if (result.success) {
@@ -174,7 +180,9 @@ const MealEntry: React.FC = () => {
                   setImagePreview(null);
                   setThumbnailImage(null);
                   setMealName('');
+                  setMealDescription('');
                   setCalories(0);
+                  setHealthScore(3); // Reset health score
                 }}
                 className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
               >
@@ -229,6 +237,19 @@ const MealEntry: React.FC = () => {
                 onChange={(e) => setMealName(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
+              />
+            </div>
+            
+            <div className="mb-4">
+              <label htmlFor="mealDescription" className="block text-gray-700 mb-2">
+                Description
+              </label>
+              <textarea
+                id="mealDescription"
+                value={mealDescription}
+                onChange={(e) => setMealDescription(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={3}
               />
             </div>
             

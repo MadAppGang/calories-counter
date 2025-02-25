@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { Plus, Settings, Trash } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { MealsApi, SettingsApi } from "../utils/api"
@@ -79,16 +79,27 @@ export default function CalorieTracker() {
   }
 
   // Calculate a health score based on calories
-  // This is a simple example - you might want a more sophisticated algorithm
+  // This is a fallback if the API hasn't provided a health score
   const calculateHealthScore = (calories: number): number => {
     // Lower calories generally mean healthier meals in this simple model
-    // Score from 0-100
-    if (calories < 200) return 95
-    if (calories < 300) return 85
-    if (calories < 400) return 75
-    if (calories < 500) return 65
-    if (calories < 600) return 55
-    return 45
+    // Score from 1-5
+    if (calories < 200) return 5
+    if (calories < 300) return 4
+    if (calories < 400) return 3
+    if (calories < 500) return 2
+    return 1
+  }
+
+  // Get health emoji based on health score (1-5)
+  const getHealthEmoji = (healthScore: number): string => {
+    switch (healthScore) {
+      case 5: return "🎉" // Very healthy - celebration
+      case 4: return "😋" // Healthy - yummy face
+      case 3: return "🤔" // Neutral - hmm, not sure about this
+      case 2: return "🥴" // Unhealthy - woozy face
+      case 1: return "🤮" // Very unhealthy - vomiting face
+      default: return "❓" // Unknown
+    }
   }
 
   const handleAddMeal = () => {
@@ -131,18 +142,18 @@ export default function CalorieTracker() {
               />
               <div className="flex-grow">
                 <h3 className="font-semibold">{meal.name}</h3>
-                <p className="text-sm text-muted-foreground">{meal.description || meal.name}</p>
+                <p className="text-sm text-muted-foreground line-clamp-2 overflow-hidden text-ellipsis">{meal.description || meal.name}</p>
                 <div className="flex justify-between items-center mt-2">
                   <span className="text-sm">{meal.time}</span>
                   <span className="text-sm font-medium">{meal.calories} cal</span>
                 </div>
               </div>
               <div
-                className="w-3 h-3 rounded-full ml-2 mr-2"
-                style={{
-                  backgroundColor: `hsl(${meal.healthScore}, 70%, 50%)`,
-                }}
-              />
+                className="text-xl ml-2 mr-2"
+                title={`Healthiness: ${meal.healthScore}/5`}
+              >
+                {getHealthEmoji(meal.healthScore || 3)}
+              </div>
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -179,6 +190,7 @@ function CalorieProgress({ totalCalories }: { totalCalories: number }) {
 
   const remainingCalories = calorieGoal - totalCalories
   const progress = (totalCalories / calorieGoal) * 100
+  const isOverLimit = remainingCalories < 0
 
   return (
     <div className="flex justify-center items-center mb-8">
@@ -189,27 +201,49 @@ function CalorieProgress({ totalCalories }: { totalCalories: number }) {
               <stop offset="0%" stopColor="#3b82f6" />
               <stop offset="100%" stopColor="#8b5cf6" />
             </linearGradient>
+            <linearGradient id="red-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#ef4444" />
+              <stop offset="100%" stopColor="#b91c1c" />
+            </linearGradient>
           </defs>
           <circle className="text-muted/20 stroke-[10]" cx="50" cy="50" r="45" fill="transparent" />
           <circle
             className="stroke-[10] text-primary transition-all duration-1000 ease-in-out"
-            style={{ stroke: "url(#gradient)" }}
+            style={{ stroke: isOverLimit ? "url(#red-gradient)" : "url(#gradient)" }}
             cx="50"
             cy="50"
             r="45"
             fill="transparent"
             strokeDasharray={`${2 * Math.PI * 45}`}
-            strokeDashoffset={`${2 * Math.PI * 45 * (1 - progress / 100)}`}
+            strokeDashoffset={`${2 * Math.PI * 45 * (1 - Math.min(progress, 100) / 100)}`}
             strokeLinecap="round"
           />
         </svg>
         <div className="absolute inset-0 flex flex-col justify-center items-center">
-          <span className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600">
-            {remainingCalories}
-          </span>
-          <span className="text-sm text-muted-foreground mt-2">calories left</span>
+          {isOverLimit ? (
+            <>
+              <span className="text-4xl font-bold text-red-500">
+                {Math.abs(remainingCalories)}
+              </span>
+              <span className="text-sm text-red-500 mt-2">calories over limit</span>
+              <span className="text-xs mt-1 text-red-400">{getOverLimitEmoji()}</span>
+            </>
+          ) : (
+            <>
+              <span className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600">
+                {remainingCalories}
+              </span>
+              <span className="text-sm text-muted-foreground mt-2">calories left</span>
+            </>
+          )}
         </div>
       </div>
     </div>
   )
+}
+
+// Helper function to get a fun emoji when over the limit
+function getOverLimitEmoji(): string {
+  const emojis = ["🔥", "💥", "⚠️", "🍔", "🍕", "🍩", "😱", "🤯"];
+  return emojis[Math.floor(Math.random() * emojis.length)];
 } 

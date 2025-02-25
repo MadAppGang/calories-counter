@@ -146,9 +146,9 @@ export const MealsApi = {
 // Meal analysis functionality
 export const MealAnalysisApi = {
   /**
-   * Analyze a meal image and get the food details
+   * Analyze a meal image and get the food details including healthiness score
    */
-  analyzeImage: async (imageFile: File): Promise<{ name: string, calories: number }> => {
+  analyzeImage: async (imageFile: File): Promise<{ name: string, description: string, calories: number, healthScore: number }> => {
     const formData = new FormData();
     formData.append('image', imageFile);
     
@@ -170,7 +170,9 @@ export const MealAnalysisApi = {
       
       return {
         name: data.name,
-        calories: data.calories
+        description: data.description || data.name,
+        calories: data.calories,
+        healthScore: data.healthScore || 3 // Default to neutral if not provided
       };
     } catch (error) {
       if (error instanceof ApiError) {
