@@ -1,0 +1,17 @@
+{
+  "name": "calorie-tracker-server",
+  "version": "1.0.0",
+  "description": "Backend for calorie tracker app",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "bun server.js",
+    "dev": "bun --watch server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.18.0",
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.2",
+    "sharp": "^0.33.5"
+  }
+}
