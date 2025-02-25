@@ -13,13 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4.1.0
+      - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: latest
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
+      - name: Verify pnpm installation
+        run: pnpm --version
       - run: pnpm install
       - run: pnpm run build
       - uses: FirebaseExtended/action-hosting-deploy@v0
