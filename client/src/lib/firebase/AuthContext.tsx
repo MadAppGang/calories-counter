@@ -5,7 +5,9 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut,
-  User 
+  User,
+  googleProvider,
+  signInWithPopup
 } from './firebase';
 
 // Type for the auth context
@@ -16,6 +18,7 @@ interface AuthContextType {
   signup: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
+  signInWithGoogle: () => Promise<void>;
 }
 
 // Create the auth context with a default undefined value
@@ -52,6 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return await currentUser.getIdToken(true);
   }
 
+  async function signInWithGoogle() {
+    await signInWithPopup(auth, googleProvider);
+  }
+
   useEffect(() => {
     // Subscribe to auth state changes
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -69,7 +76,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login,
     signup,
     logout,
-    getIdToken
+    getIdToken,
+    signInWithGoogle
   };
 
   return (

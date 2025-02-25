@@ -3,8 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import MealEntry from './components/MealEntry';
-import Login from './components/auth/Login';
-import Signup from './components/auth/Signup';
+import GoogleAuth from './components/auth/GoogleAuth';
 import { AuthProvider, useAuth } from './lib/firebase/AuthContext';
 import './App.css';
 
@@ -17,7 +16,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
   
   if (!currentUser) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/auth" replace />;
   }
   
   return <>{children}</>;
@@ -29,9 +28,8 @@ const App: React.FC = () => {
       <Router>
         <div className="min-h-screen bg-gray-100">
           <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
+            {/* Auth route */}
+            <Route path="/auth" element={<GoogleAuth />} />
             
             {/* Protected routes */}
             <Route 
