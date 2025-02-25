@@ -19,10 +19,13 @@ jobs:
       - name: Verify pnpm installation
         run: pnpm --version
       - run: pnpm install
+        working-directory: ./client
       - run: pnpm run build
+        working-directory: ./client        
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_CALORIESCOUNTER_432DE }}
           channelId: live
           projectId: caloriescounter-432de
+          entryPoint: "./client" 
