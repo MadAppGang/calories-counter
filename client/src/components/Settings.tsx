@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { getSettings, saveSettings } from '../utils/storage';
 import { useNavigate } from 'react-router-dom';
 import { SettingsApi, MealsApi } from '../utils/api';
+import { useAuth } from '../lib/firebase/AuthContext';
+import { LogOut } from 'lucide-react';
 
 const Settings: React.FC = () => {
   const [dailyCalorieTarget, setDailyCalorieTarget] = useState<number>(2000);
   const [isClearing, setIsClearing] = useState<boolean>(false);
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
   useEffect(() => {
     const settings = SettingsApi.get();
@@ -36,6 +39,16 @@ const Settings: React.FC = () => {
       } finally {
         setIsClearing(false);
       }
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      // Navigate is not needed as the auth state will change
+      // and the protected route will redirect to login
+    } catch (error) {
+      console.error('Error logging out:', error);
     }
   };
 
@@ -78,7 +91,7 @@ const Settings: React.FC = () => {
         </button>
       </form>
       
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">Data Management</h2>
         
         <button
@@ -90,6 +103,21 @@ const Settings: React.FC = () => {
         </button>
         <p className="text-xs text-gray-500 mt-2">
           This will delete all your meal history and cannot be undone.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-lg font-semibold mb-4">Account</h2>
+        
+        <button
+          onClick={handleLogout}
+          className="w-full flex justify-center items-center bg-gray-700 text-white py-2 px-4 rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Logout
+        </button>
+        <p className="text-xs text-gray-500 mt-2">
+          You will be redirected to the login page.
         </p>
       </div>
     </div>

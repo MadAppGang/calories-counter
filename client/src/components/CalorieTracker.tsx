@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react"
-import { Plus, Settings, Trash } from "lucide-react"
+import { Plus, Settings, Trash, LogOut } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { MealsApi, SettingsApi } from "../utils/api"
 import { Meal } from "../types"
 import Image from "./ui/image"
 import Link from "./ui/link"
 import { Button } from "./ui/button"
+import { useAuth } from "../lib/firebase/AuthContext"
 
 export default function CalorieTracker() {
   const [meals, setMeals] = useState<Meal[]>([])
@@ -13,6 +14,7 @@ export default function CalorieTracker() {
   const [isLoading, setIsLoading] = useState(true)
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
   const navigate = useNavigate()
+  const { logout } = useAuth()
 
   // Load meals from server
   const loadMeals = async () => {
@@ -106,16 +108,32 @@ export default function CalorieTracker() {
     navigate('/add-meal')
   }
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      // Navigate is not needed as the auth state will change
+      // and the protected route will redirect to login
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  }
+
   return (
     <div className="max-w-md mx-auto p-6 bg-background">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Calorie Tracker</h1>
-        <Link href="/settings">
-          <Button variant="ghost" size="icon">
-            <Settings className="h-5 w-5" />
-            <span className="sr-only">Settings</span>
+        <div className="flex space-x-2">
+          <Link href="/settings">
+            <Button variant="ghost" size="icon">
+              <Settings className="h-5 w-5" />
+              <span className="sr-only">Settings</span>
+            </Button>
+          </Link>
+          <Button variant="ghost" size="icon" onClick={handleLogout}>
+            <LogOut className="h-5 w-5" />
+            <span className="sr-only">Logout</span>
           </Button>
-        </Link>
+        </div>
       </div>
 
       <CalorieProgress totalCalories={totalCalories} />
