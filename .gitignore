@@ -23,3 +23,4 @@ dist-ssr
 *.sln
 *.sw?
 client/.vite/deps_temp_6cf35002
+client/.firebase
