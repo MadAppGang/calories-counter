@@ -1,22 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { getSettings, saveSettings, getLocalStorageUsage } from '../utils/storage';
+import { getSettings, saveSettings } from '../utils/storage';
 import { useNavigate } from 'react-router-dom';
-import { SettingsApi } from '../utils/api';
+import { SettingsApi, MealsApi } from '../utils/api';
 
 const Settings: React.FC = () => {
   const [dailyCalorieTarget, setDailyCalorieTarget] = useState<number>(2000);
-  const [storageUsage, setStorageUsage] = useState<{ used: number, max: number, percentage: number }>({ 
-    used: 0, max: 5, percentage: 0 
-  });
+  const [isClearing, setIsClearing] = useState<boolean>(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     const settings = SettingsApi.get();
     setDailyCalorieTarget(settings.dailyCalorieTarget);
-    
-    // Get current storage usage
-    const usage = getLocalStorageUsage();
-    setStorageUsage(usage);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -25,16 +19,22 @@ const Settings: React.FC = () => {
     navigate('/');
   };
   
-  const clearAllMeals = () => {
+  const clearAllMeals = async () => {
     if (window.confirm('Are you sure you want to clear all your meal history? This cannot be undone.')) {
+      setIsClearing(true);
       try {
-        localStorage.removeItem('calorieTracker_meals');
-        // Update storage usage display
-        setStorageUsage(getLocalStorageUsage());
-        alert('All meal history has been cleared.');
+        const result = await MealsApi.clearAll();
+        
+        if (result.success) {
+          alert('All meal history has been cleared.');
+        } else {
+          alert(`Failed to clear meal history: ${result.message}`);
+        }
       } catch (error) {
         console.error('Error clearing meals:', error);
-        alert('Failed to clear meal history.');
+        alert('Failed to clear meal history due to a network error.');
+      } finally {
+        setIsClearing(false);
       }
     }
   };
@@ -79,26 +79,14 @@ const Settings: React.FC = () => {
       </form>
       
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-lg font-semibold mb-4">Storage Management</h2>
-        
-        <div className="mb-4">
-          <p className="text-sm text-gray-600 mb-2">Storage Usage:</p>
-          <div className="w-full bg-gray-200 rounded-full h-2.5">
-            <div 
-              className={`h-2.5 rounded-full ${storageUsage.percentage > 80 ? 'bg-red-500' : 'bg-blue-500'}`} 
-              style={{ width: `${Math.min(storageUsage.percentage, 100)}%` }}
-            ></div>
-          </div>
-          <p className="text-xs text-gray-500 mt-1">
-            {storageUsage.used.toFixed(2)}MB / {storageUsage.max}MB ({storageUsage.percentage.toFixed(1)}%)
-          </p>
-        </div>
+        <h2 className="text-lg font-semibold mb-4">Data Management</h2>
         
         <button
           onClick={clearAllMeals}
           className="w-full bg-red-500 text-white py-2 px-4 rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500"
+          disabled={isClearing}
         >
-          Clear All Meal History
+          {isClearing ? 'Clearing...' : 'Clear All Meal History'}
         </button>
         <p className="text-xs text-gray-500 mt-2">
           This will delete all your meal history and cannot be undone.

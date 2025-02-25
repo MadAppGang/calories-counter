@@ -1,8 +1,8 @@
-import { Meal, UserSettings } from '../types';
-import { getSettings, saveSettings, getMeals, saveMeal } from './storage';
+import { Meal } from '../types';
+import { getSettings, saveSettings } from './storage';
 
-// API Configuration
-const API_URL = 'http://localhost:3002/api';
+// API Base URL
+const API_BASE_URL = 'http://localhost:3002/api';
 
 /**
  * API error class for better error handling
@@ -17,50 +17,134 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * Meal API interface
- */
-export const MealApi = {
-  /**
-   * Get all meals
-   */
-  getAll: async (): Promise<Meal[]> => {
-    // Currently this just returns from local storage
-    // In a real app, this would fetch from the server
-    return getMeals();
-  },
-
-  /**
-   * Get today's meals
-   */
-  getToday: (): Meal[] => {
-    const meals = getMeals();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    return meals.filter(meal => {
-      const mealDate = new Date(meal.timestamp);
-      mealDate.setHours(0, 0, 0, 0);
-      return mealDate.getTime() === today.getTime();
+// Settings API - we'll keep settings in localStorage for simplicity
+export const SettingsApi = {
+  get: getSettings,
+  
+  updateCalorieTarget: (dailyCalorieTarget: number) => {
+    const settings = getSettings();
+    saveSettings({
+      ...settings,
+      dailyCalorieTarget
     });
-  },
+    return { success: true };
+  }
+};
 
-  /**
-   * Add a new meal
-   */
-  add: async (name: string, calories: number, imageUrl: string = '/placeholder.svg'): Promise<Meal> => {
-    const newMeal: Meal = {
-      id: Date.now().toString(),
-      name,
-      calories,
-      imageUrl,
-      timestamp: Date.now()
-    };
-    
-    saveMeal(newMeal);
-    return newMeal;
+// Meals API - now using server endpoints instead of localStorage
+export const MealsApi = {
+  // Get all meals from the server
+  getAll: async (): Promise<Meal[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/meals`);
+      const data = await response.json();
+      
+      if (data.success) {
+        return data.data;
+      } else {
+        console.error('Failed to fetch meals:', data.message);
+        return [];
+      }
+    } catch (error) {
+      console.error('Error fetching meals:', error);
+      return [];
+    }
   },
+  
+  // Get today's meals from the server
+  getToday: async (): Promise<Meal[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/meals/today`);
+      const data = await response.json();
+      
+      if (data.success) {
+        return data.data;
+      } else {
+        console.error('Failed to fetch today\'s meals:', data.message);
+        return [];
+      }
+    } catch (error) {
+      console.error('Error fetching today\'s meals:', error);
+      return [];
+    }
+  },
+  
+  // Add a new meal to the server
+  add: async (meal: Omit<Meal, 'id'>): Promise<{ success: boolean; data?: Meal; message?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/meals`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(meal)
+      });
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error adding meal:', error);
+      return { 
+        success: false, 
+        message: 'Failed to add meal due to network error' 
+      };
+    }
+  },
+  
+  // Delete a meal from the server
+  delete: async (id: string): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/meals/${id}`, {
+        method: 'DELETE'
+      });
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error deleting meal:', error);
+      return { 
+        success: false, 
+        message: 'Failed to delete meal due to network error' 
+      };
+    }
+  },
+  
+  // Clear all meals (for testing/admin purposes)
+  clearAll: async (): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/meals`, {
+        method: 'DELETE'
+      });
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error clearing meals:', error);
+      return { 
+        success: false, 
+        message: 'Failed to clear meals due to network error' 
+      };
+    }
+  },
+  
+  // Calculate today's total calories
+  getTodayTotalCalories: async (): Promise<number> => {
+    try {
+      const todayMeals = await MealsApi.getToday();
+      return todayMeals.reduce((total, meal) => total + meal.calories, 0);
+    } catch (error) {
+      console.error('Error calculating total calories:', error);
+      return 0;
+    }
+  },
+  
+  // Calculate remaining calories based on daily target
+  getRemainingCalories: async (): Promise<number> => {
+    const settings = SettingsApi.get();
+    const consumedCalories = await MealsApi.getTodayTotalCalories();
+    return settings.dailyCalorieTarget - consumedCalories;
+  }
+};
 
+// Meal analysis functionality
+export const MealAnalysisApi = {
   /**
    * Analyze a meal image and get the food details
    */
@@ -69,7 +153,7 @@ export const MealApi = {
     formData.append('image', imageFile);
     
     try {
-      const response = await fetch(`${API_URL}/analyze-image`, {
+      const response = await fetch(`${API_BASE_URL}/analyze-image`, {
         method: 'POST',
         body: formData,
       });
@@ -94,50 +178,5 @@ export const MealApi = {
       }
       throw new ApiError('Network error', 500);
     }
-  },
-
-  /**
-   * Get total calories consumed today
-   */
-  getTodayCalories: (): number => {
-    const todayMeals = MealApi.getToday();
-    return todayMeals.reduce((total, meal) => total + meal.calories, 0);
-  },
-
-  /**
-   * Get remaining calories for today
-   */
-  getRemainingCalories: (): number => {
-    const { dailyCalorieTarget } = getSettings();
-    const consumedCalories = MealApi.getTodayCalories();
-    return dailyCalorieTarget - consumedCalories;
-  }
-};
-
-/**
- * Settings API interface
- */
-export const SettingsApi = {
-  /**
-   * Get user settings
-   */
-  get: (): UserSettings => {
-    return getSettings();
-  },
-  
-  /**
-   * Update user settings
-   */
-  update: (settings: UserSettings): void => {
-    saveSettings(settings);
-  },
-  
-  /**
-   * Update daily calorie target
-   */
-  updateCalorieTarget: (target: number): void => {
-    const settings = getSettings();
-    settings.dailyCalorieTarget = target;
-    saveSettings(settings);
   }
 }; 

@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
-import { saveMeal, getSettings } from '../utils/storage';
+import { MealsApi, MealAnalysisApi } from '../utils/api';
+import { getSettings } from '../utils/storage';
 
 const MealEntry: React.FC = () => {
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [thumbnailImage, setThumbnailImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [mealName, setMealName] = useState<string>('');
   const [calories, setCalories] = useState<number>(0);
   const navigate = useNavigate();
@@ -74,7 +76,7 @@ const MealEntry: React.FC = () => {
         setImagePreview(fullSizePreview);
         
         try {
-          // Create and store a thumbnail version for localStorage
+          // Create and store a thumbnail version
           const thumbnail = await createThumbnail(fullSizePreview);
           setThumbnailImage(thumbnail);
         } catch (error) {
@@ -92,30 +94,12 @@ const MealEntry: React.FC = () => {
     
     setIsAnalyzing(true);
     
-    // Create form data to send to backend
-    const formData = new FormData();
-    formData.append('image', image);
-    
-    // Get the API key from settings
-    const settings = getSettings();
-    if (settings.foodRecognitionApiKey) {
-      formData.append('apiKey', settings.foodRecognitionApiKey);
-    }
-    
     try {
-      const response = await fetch('http://localhost:3002/api/analyze-image', {
-        method: 'POST',
-        body: formData,
-      });
+      // Use the MealAnalysisApi for image analysis
+      const result = await MealAnalysisApi.analyzeImage(image);
       
-      const data = await response.json();
-      
-      if (data.success) {
-        setMealName(data.name);
-        setCalories(data.calories);
-      } else {
-        alert('Failed to analyze image. Please try again.');
-      }
+      setMealName(result.name);
+      setCalories(result.calories);
     } catch (error) {
       console.error('Error analyzing image:', error);
       alert('Error analyzing image. Please try again.');
@@ -124,7 +108,7 @@ const MealEntry: React.FC = () => {
     }
   };
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!thumbnailImage || !mealName || calories <= 0) {
@@ -132,21 +116,28 @@ const MealEntry: React.FC = () => {
       return;
     }
     
+    setIsSaving(true);
+    
     try {
-      // Save meal to localStorage with the smaller thumbnail image
-      saveMeal({
-        id: uuidv4(),
+      // Save meal to server with the smaller thumbnail image
+      const result = await MealsApi.add({
         name: mealName,
         calories,
         imageUrl: thumbnailImage, // Use the thumbnail instead of full-size image
         timestamp: Date.now(),
       });
       
-      // Navigate back to dashboard
-      navigate('/');
+      if (result.success) {
+        // Navigate back to dashboard
+        navigate('/');
+      } else {
+        alert(`Failed to save meal: ${result.message}`);
+      }
     } catch (error) {
       console.error('Error saving meal:', error);
-      alert('Failed to save meal. The image may be too large. Try a different image or clear some storage.');
+      alert('Failed to save meal. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -259,8 +250,9 @@ const MealEntry: React.FC = () => {
             <button
               type="submit"
               className="w-full bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500"
+              disabled={isSaving}
             >
-              Save Meal
+              {isSaving ? 'Saving...' : 'Save Meal'}
             </button>
           </form>
         )}

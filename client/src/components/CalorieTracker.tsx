@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { Plus, Settings } from "lucide-react"
+import { Plus, Settings, Trash } from "lucide-react"
 import { useNavigate } from "react-router-dom"
-import { MealApi, SettingsApi } from "../utils/api"
+import { MealsApi, SettingsApi } from "../utils/api"
 import { Meal } from "../types"
 import Image from "./ui/image"
 import Link from "./ui/link"
@@ -10,22 +10,64 @@ import { Button } from "./ui/button"
 export default function CalorieTracker() {
   const [meals, setMeals] = useState<Meal[]>([])
   const [totalCalories, setTotalCalories] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
   const navigate = useNavigate()
+
+  // Load meals from server
+  const loadMeals = async () => {
+    setIsLoading(true);
+    try {
+      // Get today's meals from server
+      const todayMeals = await MealsApi.getToday();
+      
+      // Transform the meals to include time and healthScore
+      const formattedMeals = todayMeals.map(meal => ({
+        ...meal,
+        time: formatTimestamp(meal.timestamp),
+        healthScore: meal.healthScore || calculateHealthScore(meal.calories),
+      }));
+      
+      setMeals(formattedMeals);
+      
+      // Calculate total calories
+      const total = todayMeals.reduce((sum, meal) => sum + meal.calories, 0);
+      setTotalCalories(total);
+    } catch (error) {
+      console.error('Error loading meals:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Function to delete a meal
+  const deleteMeal = async (id: string) => {
+    // Confirm with user before deleting
+    if (window.confirm('Are you sure you want to delete this meal?')) {
+      setIsDeleting(id);
+      try {
+        // Call the API to delete the meal
+        const result = await MealsApi.delete(id);
+        
+        if (result.success) {
+          // Update the UI by reloading meals
+          loadMeals();
+        } else {
+          alert(`Failed to delete meal: ${result.message}`);
+        }
+      } catch (error) {
+        console.error('Error deleting meal:', error);
+        alert('Failed to delete meal. Please try again.');
+      } finally {
+        setIsDeleting(null);
+      }
+    }
+  };
 
   useEffect(() => {
     // Load today's meals on component mount
-    const todayMeals = MealApi.getToday()
-    
-    // Transform the meals to include time and healthScore
-    const formattedMeals = todayMeals.map(meal => ({
-      ...meal,
-      time: formatTimestamp(meal.timestamp),
-      healthScore: meal.healthScore || calculateHealthScore(meal.calories),
-    }))
-    
-    setMeals(formattedMeals)
-    setTotalCalories(MealApi.getTodayCalories())
-  }, [])
+    loadMeals();
+  }, []);
 
   // Format timestamp to time string (e.g., "08:30 AM")
   const formatTimestamp = (timestamp: number): string => {
@@ -67,33 +109,57 @@ export default function CalorieTracker() {
 
       <CalorieProgress totalCalories={totalCalories} />
 
-      <div className="space-y-4 mb-6">
-        {meals.map((meal) => (
-          <div key={meal.id} className="flex items-center bg-card rounded-lg p-3 shadow-sm">
-            <Image
-              src={meal.imageUrl || "/placeholder.svg"}
-              alt={meal.name}
-              width={80}
-              height={80}
-              className="rounded-md mr-4"
-            />
-            <div className="flex-grow">
-              <h3 className="font-semibold">{meal.name}</h3>
-              <p className="text-sm text-muted-foreground">{meal.description || meal.name}</p>
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-sm">{meal.time}</span>
-                <span className="text-sm font-medium">{meal.calories} cal</span>
+      {isLoading ? (
+        <div className="flex justify-center items-center py-10">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      ) : meals.length === 0 ? (
+        <div className="text-center py-10 text-muted-foreground">
+          <p>No meals tracked today.</p>
+          <p>Add your first meal to start tracking!</p>
+        </div>
+      ) : (
+        <div className="space-y-4 mb-6">
+          {meals.map((meal) => (
+            <div key={meal.id} className="flex items-center bg-card rounded-lg p-3 shadow-sm">
+              <Image
+                src={meal.imageUrl || "/placeholder.svg"}
+                alt={meal.name}
+                width={80}
+                height={80}
+                className="rounded-md mr-4"
+              />
+              <div className="flex-grow">
+                <h3 className="font-semibold">{meal.name}</h3>
+                <p className="text-sm text-muted-foreground">{meal.description || meal.name}</p>
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-sm">{meal.time}</span>
+                  <span className="text-sm font-medium">{meal.calories} cal</span>
+                </div>
               </div>
+              <div
+                className="w-3 h-3 rounded-full ml-2 mr-2"
+                style={{
+                  backgroundColor: `hsl(${meal.healthScore}, 70%, 50%)`,
+                }}
+              />
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => deleteMeal(meal.id)}
+                aria-label="Delete meal"
+                disabled={isDeleting === meal.id}
+              >
+                {isDeleting === meal.id ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-red-500"></div>
+                ) : (
+                  <Trash className="h-4 w-4 text-red-500" />
+                )}
+              </Button>
             </div>
-            <div
-              className="w-3 h-3 rounded-full ml-2"
-              style={{
-                backgroundColor: `hsl(${meal.healthScore}, 70%, 50%)`,
-              }}
-            />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <Button className="w-full py-6 text-lg" size="lg" onClick={handleAddMeal}>
         <Plus className="mr-2 h-5 w-5" /> Add New Meal

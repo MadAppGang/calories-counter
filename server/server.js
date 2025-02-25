@@ -11,6 +11,7 @@ import path from 'path';
 import fs from 'fs';
 import { Anthropic } from '@anthropic-ai/sdk';
 import sharp from 'sharp';
+import { Database } from 'bun:sqlite';
 
 // Get environment variables
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
@@ -20,6 +21,53 @@ const port = parseInt(process.env.PORT || '3002', 10);
 if (!fs.existsSync('uploads/')) {
   fs.mkdirSync('uploads/');
 }
+
+// Create data directory if it doesn't exist
+if (!fs.existsSync('data/')) {
+  fs.mkdirSync('data/');
+}
+
+// Initialize SQLite database
+const DB_PATH = 'data/meals.sqlite';
+const db = new Database(DB_PATH, { create: true });
+
+// Initialize database tables
+function initializeDatabase() {
+  // Create meals table if it doesn't exist
+  db.run(`
+    CREATE TABLE IF NOT EXISTS meals (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      calories INTEGER NOT NULL,
+      imageUrl TEXT,
+      timestamp INTEGER NOT NULL,
+      description TEXT,
+      healthScore INTEGER
+    )
+  `);
+
+  console.log('Database initialized');
+}
+
+// Initialize database first
+initializeDatabase();
+
+// Now prepare statements after tables are created
+const preparedStatements = {
+  getAllMeals: db.query('SELECT * FROM meals ORDER BY timestamp DESC'),
+  getMealById: db.query('SELECT * FROM meals WHERE id = $id'),
+  getTodayMeals: db.query(`
+    SELECT * FROM meals 
+    WHERE timestamp >= $startOfDay AND timestamp < $endOfDay 
+    ORDER BY timestamp DESC
+  `),
+  insertMeal: db.query(`
+    INSERT INTO meals (id, name, calories, imageUrl, timestamp, description, healthScore) 
+    VALUES ($id, $name, $calories, $imageUrl, $timestamp, $description, $healthScore)
+  `),
+  deleteMeal: db.query('DELETE FROM meals WHERE id = $id'),
+  deleteAllMeals: db.query('DELETE FROM meals')
+};
 
 // Helper function to get MIME type from file extension
 function getMimeTypeFromExtension(filePath) {
@@ -138,6 +186,148 @@ app.use('*', cors());
 
 // Health check endpoint
 app.get('/', (c) => c.text('Calorie Tracker API is running'));
+
+// Get all meals
+app.get('/api/meals', (c) => {
+  try {
+    const meals = preparedStatements.getAllMeals.all();
+    return c.json({
+      success: true,
+      data: meals
+    });
+  } catch (error) {
+    console.error('Error getting all meals:', error);
+    return c.json({
+      success: false,
+      message: 'Failed to retrieve meals'
+    }, 500);
+  }
+});
+
+// Get today's meals
+app.get('/api/meals/today', (c) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startOfDay = today.getTime();
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const endOfDay = tomorrow.getTime();
+
+    const todayMeals = preparedStatements.getTodayMeals.all({
+      $startOfDay: startOfDay,
+      $endOfDay: endOfDay
+    });
+
+    return c.json({
+      success: true,
+      data: todayMeals
+    });
+  } catch (error) {
+    console.error('Error getting today\'s meals:', error);
+    return c.json({
+      success: false,
+      message: 'Failed to retrieve today\'s meals'
+    }, 500);
+  }
+});
+
+// Add a new meal
+app.post('/api/meals', async (c) => {
+  try {
+    const mealData = await c.req.json();
+
+    if (!mealData.name || !mealData.calories) {
+      return c.json({
+        success: false,
+        message: 'Name and calories are required'
+      }, 400);
+    }
+
+    // Ensure the meal has an ID and timestamp
+    if (!mealData.id) {
+      mealData.id = Date.now().toString();
+    }
+
+    if (!mealData.timestamp) {
+      mealData.timestamp = Date.now();
+    }
+
+    // Insert meal into database
+    preparedStatements.insertMeal.run({
+      $id: mealData.id,
+      $name: mealData.name,
+      $calories: mealData.calories,
+      $imageUrl: mealData.imageUrl || '/placeholder.svg',
+      $timestamp: mealData.timestamp,
+      $description: mealData.description || null,
+      $healthScore: mealData.healthScore || null
+    });
+
+    // Get the inserted meal
+    const insertedMeal = preparedStatements.getMealById.get({ $id: mealData.id });
+
+    return c.json({
+      success: true,
+      data: insertedMeal
+    }, 201);
+  } catch (error) {
+    console.error('Error adding meal:', error);
+    return c.json({
+      success: false,
+      message: 'Failed to add meal: ' + error.message
+    }, 500);
+  }
+});
+
+// Delete a meal
+app.delete('/api/meals/:id', (c) => {
+  try {
+    const id = c.req.param('id');
+
+    // Check if meal exists
+    const meal = preparedStatements.getMealById.get({ $id: id });
+    if (!meal) {
+      return c.json({
+        success: false,
+        message: 'Meal not found'
+      }, 404);
+    }
+
+    // Delete the meal
+    preparedStatements.deleteMeal.run({ $id: id });
+
+    return c.json({
+      success: true,
+      message: 'Meal deleted'
+    });
+  } catch (error) {
+    console.error('Error deleting meal:', error);
+    return c.json({
+      success: false,
+      message: 'Failed to delete meal: ' + error.message
+    }, 500);
+  }
+});
+
+// Clear all meals (for testing/admin purposes)
+app.delete('/api/meals', (c) => {
+  try {
+    preparedStatements.deleteAllMeals.run();
+
+    return c.json({
+      success: true,
+      message: 'All meals cleared'
+    });
+  } catch (error) {
+    console.error('Error clearing meals:', error);
+    return c.json({
+      success: false,
+      message: 'Failed to clear meals: ' + error.message
+    }, 500);
+  }
+});
 
 // Analyze image endpoint with Claude AI integration
 app.post('/api/analyze-image', async (c) => {
@@ -526,4 +716,11 @@ export default {
 console.log(`Server running on port ${port}`);
 if (!CLAUDE_API_KEY) {
   console.warn('Warning: CLAUDE_API_KEY environment variable is not set. The API will not function properly.');
-} 
+}
+
+// Close database connection when server shuts down
+process.on('SIGINT', () => {
+  console.log('Closing database connection...');
+  db.close();
+  process.exit(0);
+}); 
