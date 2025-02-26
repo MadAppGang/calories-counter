@@ -15,7 +15,7 @@
       ],
       "runtime": "nodejs20",
       "predeploy": [
-        "npm run build"
+        "pnpm run build"
       ]
     }
   ]
