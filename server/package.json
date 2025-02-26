@@ -3,17 +3,32 @@
   "version": "1.0.0",
   "description": "Backend for calorie tracker app",
   "type": "module",
-  "main": "server.js",
+  "main": "lib/function.js",
+  "engines": {
+    "node": "20"
+  },
   "scripts": {
-    "start": "bun server.js",
-    "dev": "bun --watch server.js"
+    "start": "node lib/server.js",
+    "start:bun": "bun server.js",
+    "dev": "bun --watch server.js",
+    "dev:ts": "tsc --watch & node --watch lib/server.js",
+    "build": "tsc",
+    "clean": "rm -rf lib",
+    "prebuild": "npm run clean",
+    "deploy": "firebase deploy --only functions"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.18.0",
+    "@google-cloud/functions-framework": "^3.4.5",
     "dotenv": "^16.4.7",
     "firebase-admin": "^13.1.0",
+    "firebase-functions": "^4.9.0",
     "hono": "^4.7.2",
     "jsonwebtoken": "^9.0.2",
     "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "firebase-functions-test": "^3.1.1",
+    "typescript": "^5.4.5"
   }
 }

@@ -58,6 +58,13 @@ const App: React.FC = () => {
             />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          
+          {/* Simple environment indicator for development */}
+          {import.meta.env.DEV && (
+            <div className="fixed bottom-2 right-2 bg-green-600 text-white text-xs px-2 py-1 rounded-md opacity-70 z-50">
+              DEV
+            </div>
+          )}
         </div>
       </Router>
     </AuthProvider>

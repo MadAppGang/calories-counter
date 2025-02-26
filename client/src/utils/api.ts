@@ -1,9 +1,25 @@
 import { Meal } from '../types';
 import { getSettings, saveSettings } from './storage';
-import { auth } from '../lib/firebase/firebase';
+import { 
+  auth, 
+  db, 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  getDocs, 
+  doc, 
+  addDoc, 
+  deleteDoc, 
+  COLLECTIONS,
+} from '../lib/firebase/firebase';
 
-// API Base URL
-const API_BASE_URL = 'http://localhost:3002/api';
+// Define Vite environment module augmentation
+/// <reference types="vite/client" />
+
+// Get API Base URL from Vite environment variables with fallback
+// @ts-expect-error: Vite specific type
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:3002/api';
 
 /**
  * API error class for better error handling
@@ -35,19 +51,48 @@ const getAuthToken = async (): Promise<string | null> => {
   }
 };
 
+// Firestore types for better type safety
+interface FirestoreTimestamp {
+  toMillis: () => number;
+}
+
+interface FirestoreDocData {
+  name?: string;
+  description?: string;
+  calories?: number;
+  imageUrl?: string;
+  timestamp?: number | FirestoreTimestamp;
+  healthScore?: number;
+  time?: string;
+  [key: string]: unknown; // Allow for other properties
+}
+
+interface FirestoreDoc {
+  id: string;
+  data: () => FirestoreDocData;
+}
+
 /**
- * Add authentication headers to fetch options
+ * Converts Firestore data to a Meal object
  */
-const withAuth = async (options: RequestInit = {}): Promise<RequestInit> => {
-  const token = await getAuthToken();
+const convertToMeal = (doc: FirestoreDoc): Meal => {
+  const data = doc.data();
+  
+  // Handle Firestore timestamp conversion
+  let timestamp = data.timestamp;
+  if (timestamp && typeof timestamp === 'object' && 'toMillis' in timestamp) {
+    timestamp = timestamp.toMillis();
+  }
   
   return {
-    ...options,
-    headers: {
-      ...options.headers,
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    }
+    id: doc.id,
+    name: data.name || '',
+    description: data.description || '',
+    calories: data.calories || 0,
+    imageUrl: data.imageUrl || '/placeholder.svg',
+    timestamp: timestamp as number || Date.now(),
+    healthScore: data.healthScore || 0,
+    time: data.time || ''
   };
 };
 
@@ -65,81 +110,150 @@ export const SettingsApi = {
   }
 };
 
-// Meals API - now using server endpoints instead of localStorage
+// Meals API - now using Firestore directly
 export const MealsApi = {
-  // Get all meals from the server
+  // Get all meals from Firestore
   getAll: async (): Promise<Meal[]> => {
     try {
-      const options = await withAuth();
-      const response = await fetch(`${API_BASE_URL}/meals`, options);
-      const data = await response.json();
-      
-      if (data.success) {
-        return data.data;
-      } else {
-        console.error('Failed to fetch meals:', data.message);
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found');
         return [];
       }
-    } catch (error) {
-      console.error('Error fetching meals:', error);
-      return [];
-    }
-  },
-  
-  // Get today's meals from the server
-  getToday: async (): Promise<Meal[]> => {
-    try {
-      const options = await withAuth();
-      const response = await fetch(`${API_BASE_URL}/meals/today`, options);
-      const data = await response.json();
       
-      if (data.success) {
-        return data.data;
-      } else {
-        console.error('Failed to fetch today\'s meals:', data.message);
-        return [];
-      }
-    } catch (error) {
-      console.error('Error fetching today\'s meals:', error);
-      return [];
-    }
-  },
-  
-  // Add a new meal to the server
-  add: async (meal: Omit<Meal, 'id'>): Promise<{ success: boolean; data?: Meal; message?: string }> => {
-    try {
-      const options = await withAuth({
-        method: 'POST',
-        body: JSON.stringify(meal)
+      const mealsCollection = collection(db, COLLECTIONS.MEALS);
+      const mealsQuery = query(
+        mealsCollection,
+        where('userId', '==', currentUser.uid),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(mealsQuery);
+      
+      const meals: Meal[] = [];
+      querySnapshot.forEach((doc) => {
+        meals.push(convertToMeal(doc));
       });
       
-      const response = await fetch(`${API_BASE_URL}/meals`, options);
-      
-      return await response.json();
+      return meals;
     } catch (error) {
-      console.error('Error adding meal:', error);
+      console.error('Error fetching meals from Firestore:', error);
+      return [];
+    }
+  },
+  
+  // Get today's meals from Firestore
+  getToday: async (): Promise<Meal[]> => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found');
+        return [];
+      }
+      
+      // Calculate start of day and end of day timestamps
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startOfDay = today.getTime();
+      
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const endOfDay = tomorrow.getTime();
+      
+      const mealsCollection = collection(db, COLLECTIONS.MEALS);
+      const mealsQuery = query(
+        mealsCollection,
+        where('userId', '==', currentUser.uid),
+        where('timestamp', '>=', startOfDay),
+        where('timestamp', '<', endOfDay),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(mealsQuery);
+      
+      const meals: Meal[] = [];
+      querySnapshot.forEach((doc) => {
+        meals.push(convertToMeal(doc));
+      });
+      
+      return meals;
+    } catch (error) {
+      console.error('Error fetching today\'s meals from Firestore:', error);
+      return [];
+    }
+  },
+  
+  // Add a new meal to Firestore
+  add: async (meal: Omit<Meal, 'id'>): Promise<{ success: boolean; data?: Meal; message?: string }> => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        return { 
+          success: false, 
+          message: 'No authenticated user found' 
+        };
+      }
+      
+      // Ensure the meal has a timestamp if not already set
+      if (!meal.timestamp) {
+        meal.timestamp = Date.now();
+      }
+      
+      // Prepare the meal data with user ID
+      const mealData = {
+        ...meal,
+        userId: currentUser.uid,
+        // If imageUrl is not set, use a placeholder
+        imageUrl: meal.imageUrl || '/placeholder.svg'
+      };
+      
+      // Add the meal to Firestore
+      const mealsCollection = collection(db, COLLECTIONS.MEALS);
+      const docRef = await addDoc(mealsCollection, mealData);
+      
+      // Construct the meal with ID
+      const newMeal: Meal = {
+        id: docRef.id,
+        ...mealData
+      } as Meal;
+      
+      return {
+        success: true,
+        data: newMeal
+      };
+    } catch (error) {
+      console.error('Error adding meal to Firestore:', error);
       return { 
         success: false, 
-        message: 'Failed to add meal due to network error' 
+        message: 'Failed to add meal to Firestore' 
       };
     }
   },
   
-  // Delete a meal from the server
+  // Delete a meal from Firestore
   delete: async (id: string): Promise<{ success: boolean; message?: string }> => {
     try {
-      const options = await withAuth({
-        method: 'DELETE'
-      });
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        return { 
+          success: false, 
+          message: 'No authenticated user found' 
+        };
+      }
       
-      const response = await fetch(`${API_BASE_URL}/meals/${id}`, options);
+      // Delete the meal from Firestore
+      const mealRef = doc(db, COLLECTIONS.MEALS, id);
+      await deleteDoc(mealRef);
       
-      return await response.json();
+      return {
+        success: true,
+        message: 'Meal deleted successfully'
+      };
     } catch (error) {
-      console.error('Error deleting meal:', error);
+      console.error('Error deleting meal from Firestore:', error);
       return { 
         success: false, 
-        message: 'Failed to delete meal due to network error' 
+        message: 'Failed to delete meal from Firestore' 
       };
     }
   },
@@ -147,18 +261,30 @@ export const MealsApi = {
   // Clear all meals (for testing/admin purposes)
   clearAll: async (): Promise<{ success: boolean; message?: string }> => {
     try {
-      const options = await withAuth({
-        method: 'DELETE'
-      });
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        return { 
+          success: false, 
+          message: 'No authenticated user found' 
+        };
+      }
       
-      const response = await fetch(`${API_BASE_URL}/meals`, options);
+      // Get all meals for the current user
+      const meals = await MealsApi.getAll();
       
-      return await response.json();
+      // Delete each meal
+      const deletionPromises = meals.map(meal => MealsApi.delete(meal.id));
+      await Promise.all(deletionPromises);
+      
+      return {
+        success: true,
+        message: 'All meals cleared successfully'
+      };
     } catch (error) {
-      console.error('Error clearing meals:', error);
+      console.error('Error clearing meals from Firestore:', error);
       return { 
         success: false, 
-        message: 'Failed to clear meals due to network error' 
+        message: 'Failed to clear meals from Firestore' 
       };
     }
   },
@@ -182,7 +308,7 @@ export const MealsApi = {
   }
 };
 
-// Meal analysis functionality
+// Meal analysis functionality - still using the server for Claude AI integration
 export const MealAnalysisApi = {
   /**
    * Analyze a meal image and get the food details including healthiness score
