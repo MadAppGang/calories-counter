@@ -1,31 +1,44 @@
 import { onRequest, HttpsFunction } from 'firebase-functions/v2/https';
 import { defineString } from 'firebase-functions/params';
-import { Hono } from 'hono';
+import admin from 'firebase-admin';
 
-// Define the custom user environment for Hono context
-interface UserEnv {
-  Variables: {
-    user: {
-      uid: string;
-      email?: string;
-      name?: string;
-      picture?: string;
-      [key: string]: unknown;
-    };
-  };
+// Initialize Firebase Admin SDK if not already initialized
+if (!admin.apps.length) {
+  try {
+    // For Firebase Functions, use the default credentials
+    if (process.env.FIREBASE_CONFIG) {
+      const functionConfig = JSON.parse(process.env.FIREBASE_CONFIG || '{}');
+      // If custom config is provided, use it
+      if (functionConfig?.project?.id) {
+        admin.initializeApp({
+          credential: admin.credential.cert({
+            projectId: functionConfig.project.id,
+            clientEmail: functionConfig.client.email,
+            privateKey: functionConfig.private.key?.replace(/\\n/g, '\n')
+          })
+        });
+        console.log('Firebase Admin SDK initialized with service account credentials');
+      } else {
+        // Otherwise use default app credentials
+        admin.initializeApp();
+        console.log('Firebase Admin SDK initialized with default app credentials');
+      }
+    } else {
+      // Simple initialization for local dev
+      admin.initializeApp();
+      console.log('Firebase Admin SDK initialized with default app credentials (local)');
+    }
+  } catch (error) {
+    console.error('Error initializing Firebase Admin SDK:', error);
+  }
 }
 
-// Create the Hono app directly in this file
-const app = new Hono<UserEnv>();
-
-// Import and apply routes from your server.ts file
-import { setupRoutes } from './server.js';
-setupRoutes(app);
-
+// Create the Hono app
+import app from './server.js';
 // Define environment parameters with defaults
 const devMode = defineString('DEV_MODE', { default: 'false' });
 
-// Export with proper type annotation to fix linting errors
+// Export with proper type annotation
 export const api: HttpsFunction = onRequest({
   // Function configuration with proper secrets handling
   memory: '1GiB',

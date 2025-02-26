@@ -18,12 +18,12 @@ jobs:
           version: latest
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          node-version: "20"
+          cache: "pnpm"
       - name: Verify pnpm installation
         run: pnpm --version
       - run: pnpm install
-      - run: pnpm run build
+      - run: pnpm run build:prod
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
