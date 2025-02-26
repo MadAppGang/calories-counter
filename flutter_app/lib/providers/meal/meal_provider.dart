@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../models/meal.dart';
 import '../../services/api/api_service.dart';
 

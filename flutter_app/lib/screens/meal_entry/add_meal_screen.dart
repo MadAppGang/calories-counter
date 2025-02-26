@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import '../../providers/meal/meal_provider.dart';
 
 class AddMealScreen extends StatefulWidget {
-  const AddMealScreen({Key? key}) : super(key: key);
+  const AddMealScreen({super.key});
 
   @override
   State<AddMealScreen> createState() => _AddMealScreenState();

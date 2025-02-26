@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'dart:io' show Platform;
 import 'providers/auth/auth_provider.dart';
 import 'providers/meal/meal_provider.dart';
@@ -19,6 +20,18 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     print("Firebase initialized successfully");
+    
+    // Initialize the FirebaseService
+    await FirebaseService.initializeFirebase();
+    
+    // Check if a user is already signed in
+    final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      print("User already signed in: ${currentUser.uid}");
+    } else {
+      print("No user currently signed in");
+    }
+    
   } catch (e) {
     print("Error initializing Firebase: $e");
     // If we're on macOS, we'll show a test screen later
@@ -28,7 +41,7 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +84,7 @@ class MyApp extends StatelessWidget {
 
 // Simple test screen for macOS
 class MacOSTestScreen extends StatelessWidget {
-  const MacOSTestScreen({Key? key}) : super(key: key);
+  const MacOSTestScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +113,7 @@ class MacOSTestScreen extends StatelessWidget {
 }
 
 class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({Key? key}) : super(key: key);
+  const AuthWrapper({super.key});
 
   @override
   Widget build(BuildContext context) {

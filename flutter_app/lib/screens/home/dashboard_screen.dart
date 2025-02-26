@@ -9,7 +9,7 @@ import '../meal_entry/add_meal_screen.dart';
 import '../settings/settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({Key? key}) : super(key: key);
+  const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
