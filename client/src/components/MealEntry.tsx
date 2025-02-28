@@ -4,6 +4,19 @@ import { v4 as uuidv4 } from 'uuid';
 import { MealsApi, MealAnalysisApi } from '../utils/api';
 import { getSettings } from '../utils/storage';
 
+// Helper function to estimate macronutrients based on calories
+const estimateMacrosFromCalories = (calories: number) => {
+  // Default macronutrient distribution: 30% protein, 50% carbs, 20% fat
+  // Protein: 4 calories per gram
+  // Carbs: 4 calories per gram
+  // Fat: 9 calories per gram
+  return {
+    protein: Math.round((calories * 0.3) / 4),
+    carbs: Math.round((calories * 0.5) / 4),
+    fats: Math.round((calories * 0.2) / 9)
+  };
+};
+
 const MealEntry: React.FC = () => {
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -13,6 +26,9 @@ const MealEntry: React.FC = () => {
   const [mealName, setMealName] = useState<string>('');
   const [mealDescription, setMealDescription] = useState<string>('');
   const [calories, setCalories] = useState<number>(0);
+  const [protein, setProtein] = useState<number>(0);
+  const [carbs, setCarbs] = useState<number>(0);
+  const [fats, setFats] = useState<number>(0);
   const [healthScore, setHealthScore] = useState<number>(3); // Default to neutral
   const navigate = useNavigate();
 
@@ -103,6 +119,9 @@ const MealEntry: React.FC = () => {
       setMealName(result.name);
       setMealDescription(result.description);
       setCalories(result.calories);
+      setProtein(result.protein || 0);
+      setCarbs(result.carbs || 0);
+      setFats(result.fats || 0);
       setHealthScore(result.healthScore); // Save the health score from AI
     } catch (error) {
       console.error('Error analyzing image:', error);
@@ -116,7 +135,7 @@ const MealEntry: React.FC = () => {
     e.preventDefault();
     
     if (!thumbnailImage || !mealName || calories <= 0) {
-      alert('Please fill in all fields');
+      alert('Please fill in all required fields');
       return;
     }
     
@@ -128,6 +147,9 @@ const MealEntry: React.FC = () => {
         name: mealName,
         description: mealDescription,
         calories,
+        protein,
+        carbs,
+        fats,
         imageUrl: thumbnailImage, // Use the thumbnail instead of full-size image
         timestamp: Date.now(),
         healthScore, // Include health score in the saved data
@@ -182,6 +204,9 @@ const MealEntry: React.FC = () => {
                   setMealName('');
                   setMealDescription('');
                   setCalories(0);
+                  setProtein(0);
+                  setCarbs(0);
+                  setFats(0);
                   setHealthScore(3); // Reset health score
                 }}
                 className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
@@ -253,7 +278,7 @@ const MealEntry: React.FC = () => {
               />
             </div>
             
-            <div className="mb-6">
+            <div className="mb-4">
               <label htmlFor="calories" className="block text-gray-700 mb-2">
                 Calories
               </label>
@@ -261,11 +286,66 @@ const MealEntry: React.FC = () => {
                 type="number"
                 id="calories"
                 value={calories}
-                onChange={(e) => setCalories(Number(e.target.value))}
+                onChange={(e) => {
+                  const newCalories = Number(e.target.value);
+                  setCalories(newCalories);
+                  
+                  // If macronutrients are all zero, estimate them based on calories
+                  if (protein === 0 && carbs === 0 && fats === 0 && newCalories > 0) {
+                    const estimatedMacros = estimateMacrosFromCalories(newCalories);
+                    setProtein(estimatedMacros.protein);
+                    setCarbs(estimatedMacros.carbs);
+                    setFats(estimatedMacros.fats);
+                  }
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                min="1"
+                min="0"
                 required
               />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mb-6">
+              <div>
+                <label htmlFor="protein" className="block text-gray-700 mb-2">
+                  Protein (g)
+                </label>
+                <input
+                  type="number"
+                  id="protein"
+                  value={protein}
+                  onChange={(e) => setProtein(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  min="0"
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="carbs" className="block text-gray-700 mb-2">
+                  Carbs (g)
+                </label>
+                <input
+                  type="number"
+                  id="carbs"
+                  value={carbs}
+                  onChange={(e) => setCarbs(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  min="0"
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="fats" className="block text-gray-700 mb-2">
+                  Fats (g)
+                </label>
+                <input
+                  type="number"
+                  id="fats"
+                  value={fats}
+                  onChange={(e) => setFats(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  min="0"
+                />
+              </div>
             </div>
             
             <button

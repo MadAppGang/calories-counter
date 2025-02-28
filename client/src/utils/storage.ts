@@ -7,8 +7,16 @@ const MAX_MEALS_TO_KEEP = 50; // Maximum number of meals to store
 // Settings functions
 export const getSettings = (): UserSettings => {
   const settings = localStorage.getItem(SETTINGS_STORAGE_KEY);
-  return settings ? JSON.parse(settings) : { 
-    dailyCalorieTarget: 2000
+  if (settings) {
+    return JSON.parse(settings);
+  }
+  
+  // Default settings with macronutrient targets based on 2000 calorie diet
+  return { 
+    dailyCalorieTarget: 2000,
+    proteinTarget: 150, // 30% of calories (4 calories per gram)
+    carbsTarget: 250,   // 50% of calories (4 calories per gram)
+    fatsTarget: 45      // 20% of calories (9 calories per gram)
   };
 };
 
@@ -102,6 +110,28 @@ export const getRemainingCalories = (): number => {
   const { dailyCalorieTarget } = getSettings();
   const consumedCalories = getTodayCalories();
   return dailyCalorieTarget - consumedCalories;
+};
+
+export const getTodayMacros = (): { protein: number, carbs: number, fats: number } => {
+  const todayMeals = getTodayMeals();
+  return todayMeals.reduce((totals, meal) => {
+    return {
+      protein: totals.protein + (meal.protein || 0),
+      carbs: totals.carbs + (meal.carbs || 0),
+      fats: totals.fats + (meal.fats || 0)
+    };
+  }, { protein: 0, carbs: 0, fats: 0 });
+};
+
+export const getRemainingMacros = (): { protein: number, carbs: number, fats: number } => {
+  const { proteinTarget, carbsTarget, fatsTarget } = getSettings();
+  const { protein: consumedProtein, carbs: consumedCarbs, fats: consumedFats } = getTodayMacros();
+  
+  return {
+    protein: (proteinTarget || 0) - consumedProtein,
+    carbs: (carbsTarget || 0) - consumedCarbs,
+    fats: (fatsTarget || 0) - consumedFats
+  };
 };
 
 // Function to clean up any existing oversized data

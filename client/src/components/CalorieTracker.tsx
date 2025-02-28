@@ -164,6 +164,10 @@ export default function CalorieTracker() {
         ...meal,
         time: formatTimestamp(meal.timestamp),
         healthScore: meal.healthScore || calculateHealthScore(meal.calories),
+        // Ensure macronutrients have default values
+        protein: meal.protein || 0,
+        carbs: meal.carbs || 0,
+        fats: meal.fats || 0,
       }));
       
       setMeals(formattedMeals);
@@ -329,7 +333,10 @@ export default function CalorieTracker() {
 
       <div className="lg:grid lg:grid-cols-12 lg:gap-8">
         <div className="lg:col-span-4 lg:mb-0">
-          <CalorieProgress totalCalories={totalCalories} />
+          <CalorieProgress 
+            totalCalories={totalCalories} 
+            selectedDate={selectedDate}
+          />
         </div>
         
         <div className="lg:col-span-8">
@@ -363,41 +370,52 @@ export default function CalorieTracker() {
               </h2>
               <div className="space-y-4 mb-6">
                 {meals.map((meal) => (
-                  <div key={meal.id} className="flex items-center bg-white rounded-lg p-3 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                    <Image
-                      src={meal.imageUrl || "/placeholder.svg"}
-                      alt={meal.name}
-                      width={80}
-                      height={80}
-                      className="rounded-md mr-4 w-16 h-16 sm:w-20 sm:h-20 object-cover"
-                    />
-                    <div className="flex-grow min-w-0">
-                      <h3 className="font-semibold text-sm sm:text-base truncate">{meal.name}</h3>
-                      <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 overflow-hidden text-ellipsis">{meal.description || meal.name}</p>
-                      <div className="flex justify-between items-center mt-2">
-                        <span className="text-xs sm:text-sm">{meal.time}</span>
-                        <span className="text-xs sm:text-sm font-medium">{meal.calories} cal</span>
+                  <div key={meal.id} className="flex flex-col bg-white rounded-lg p-3 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                    <div className="flex items-center">
+                      <Image
+                        src={meal.imageUrl || "/placeholder.svg"}
+                        alt={meal.name}
+                        width={80}
+                        height={80}
+                        className="rounded-md mr-4 w-16 h-16 sm:w-20 sm:h-20 object-cover"
+                      />
+                      <div className="flex-grow min-w-0">
+                        <h3 className="font-semibold text-sm sm:text-base truncate">{meal.name}</h3>
+                        <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 overflow-hidden text-ellipsis">{meal.description || meal.name}</p>
+                        <div className="flex justify-between items-center mt-2">
+                          <span className="text-xs sm:text-sm">{meal.time}</span>
+                          <span className="text-xs sm:text-sm font-medium">{meal.calories} cal</span>
+                        </div>
+                      </div>
+                      <div
+                        className="text-xl ml-2 mr-2"
+                        title={`Healthiness: ${meal.healthScore}/5`}
+                      >
+                        {getHealthEmoji(meal.healthScore || 3)}
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => deleteMeal(meal.id)}
+                        aria-label="Delete meal"
+                        disabled={isDeleting === meal.id}
+                      >
+                        {isDeleting === meal.id ? (
+                          <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-red-500"></div>
+                        ) : (
+                          <Trash className="h-4 w-4 text-red-500" />
+                        )}
+                      </Button>
+                    </div>
+                    
+                    {/* Macronutrient information */}
+                    <div className="mt-3 pt-2 border-t border-gray-100">
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <MacronutrientTag label="Protein" value={meal.protein} unit="g" color="bg-blue-50 text-blue-700" />
+                        <MacronutrientTag label="Carbs" value={meal.carbs} unit="g" color="bg-yellow-50 text-yellow-700" />
+                        <MacronutrientTag label="Fats" value={meal.fats} unit="g" color="bg-pink-50 text-pink-700" />
                       </div>
                     </div>
-                    <div
-                      className="text-xl ml-2 mr-2"
-                      title={`Healthiness: ${meal.healthScore}/5`}
-                    >
-                      {getHealthEmoji(meal.healthScore || 3)}
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => deleteMeal(meal.id)}
-                      aria-label="Delete meal"
-                      disabled={isDeleting === meal.id}
-                    >
-                      {isDeleting === meal.id ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-red-500"></div>
-                      ) : (
-                        <Trash className="h-4 w-4 text-red-500" />
-                      )}
-                    </Button>
                   </div>
                 ))}
               </div>
@@ -414,14 +432,42 @@ export default function CalorieTracker() {
   )
 }
 
-function CalorieProgress({ totalCalories }: { totalCalories: number }) {
+function CalorieProgress({ totalCalories, selectedDate }: { totalCalories: number; selectedDate: Date }) {
   const [calorieGoal, setCalorieGoal] = useState(2000)
+  const [macros, setMacros] = useState({
+    protein: 0,
+    carbs: 0,
+    fats: 0
+  });
+  const [macroTargets, setMacroTargets] = useState({
+    protein: 0,
+    carbs: 0,
+    fats: 0
+  });
   
   useEffect(() => {
-    // Get calorie goal from settings
-    const settings = SettingsApi.get()
-    setCalorieGoal(settings.dailyCalorieTarget)
-  }, [])
+    // Get calorie goal and macro targets from settings
+    const settings = SettingsApi.get();
+    setCalorieGoal(settings.dailyCalorieTarget);
+    
+    // Set default macro targets if not set
+    // Default protein: 20% of calories (4 calories per gram)
+    // Default carbs: 50% of calories (4 calories per gram)
+    // Default fats: 30% of calories (9 calories per gram)
+    setMacroTargets({
+      protein: settings.proteinTarget || Math.round(settings.dailyCalorieTarget * 0.2 / 4),
+      carbs: settings.carbsTarget || Math.round(settings.dailyCalorieTarget * 0.5 / 4),
+      fats: settings.fatsTarget || Math.round(settings.dailyCalorieTarget * 0.3 / 9)
+    });
+    
+    // Get macros for the selected date
+    const loadMacros = async () => {
+      const dailyMacros = await MealsApi.getDailyMacros(selectedDate);
+      setMacros(dailyMacros);
+    };
+    
+    loadMacros();
+  }, [totalCalories, selectedDate]); // Re-load when selected date changes
 
   const remainingCalories = calorieGoal - totalCalories
   const progress = (totalCalories / calorieGoal) * 100
@@ -493,6 +539,37 @@ function CalorieProgress({ totalCalories }: { totalCalories: number }) {
           </span>
         </div>
       </div>
+      
+      {/* Macronutrient summary */}
+      <div className="mt-6 pt-4 border-t border-gray-100">
+        <h3 className="text-sm font-semibold mb-3">Macronutrients</h3>
+        
+        <div className="space-y-4">
+          {/* Protein progress */}
+          <MacroProgress 
+            label="Protein" 
+            current={macros.protein} 
+            target={macroTargets.protein} 
+            color="bg-blue-500" 
+          />
+          
+          {/* Carbs progress */}
+          <MacroProgress 
+            label="Carbs" 
+            current={macros.carbs} 
+            target={macroTargets.carbs} 
+            color="bg-yellow-500" 
+          />
+          
+          {/* Fats progress */}
+          <MacroProgress 
+            label="Fats" 
+            current={macros.fats} 
+            target={macroTargets.fats} 
+            color="bg-pink-500" 
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -501,4 +578,61 @@ function CalorieProgress({ totalCalories }: { totalCalories: number }) {
 function getOverLimitEmoji(): string {
   const emojis = ["🔥", "💥", "⚠️", "🍔", "🍕", "🍩", "😱", "🤯"];
   return emojis[Math.floor(Math.random() * emojis.length)];
+}
+
+// Component to display a macronutrient value with label
+function MacronutrientTag({ 
+  label, 
+  value, 
+  unit, 
+  color 
+}: { 
+  label: string; 
+  value: number; 
+  unit: string; 
+  color: string;
+}) {
+  return (
+    <div className={`px-2 py-1 rounded-md text-xs sm:text-sm ${color}`}>
+      <div className="font-medium">{label}</div>
+      <div className="font-bold">{value}{unit}</div>
+    </div>
+  );
+}
+
+// Component to display a macro progress bar
+function MacroProgress({ 
+  label, 
+  current, 
+  target, 
+  color 
+}: { 
+  label: string; 
+  current: number; 
+  target: number; 
+  color: string;
+}) {
+  const progress = Math.min((current / (target || 1)) * 100, 100);
+  const isOverLimit = current > target && target > 0;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-1">
+        <span className="text-xs font-medium">{label}</span>
+        <span className="text-xs">
+          {isOverLimit ? (
+            <span className="text-red-500 font-medium">{current}g/{target}g</span>
+          ) : (
+            <span>{current}g<span className="text-muted-foreground">/{target}g</span></span>
+          )}
+        </span>
+      </div>
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full ${color} transition-all duration-500 ease-in-out ${isOverLimit ? 'bg-red-500' : ''}`}
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+    </div>
+  );
 } 

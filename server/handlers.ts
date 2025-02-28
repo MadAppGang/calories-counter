@@ -40,6 +40,9 @@ interface ClaudeAnalysisResult {
   name?: string;
   description?: string;
   calories?: number;
+  protein?: number;
+  carbs?: number;
+  fats?: number;
   healthScore?: number;
   error?: string;
 }
@@ -442,14 +445,14 @@ async function sendImageToOpenAIAPI(openai: OpenAI, base64Image: string, mediaTy
       messages: [
         {
           role: "system",
-          content: "You are a food analysis assistant that helps identify foods, estimate their caloric content, and evaluate their healthiness."
+          content: "You are a food analysis assistant that helps identify foods, estimate their caloric content, macronutrients, and evaluate their healthiness. ALWAYS include protein, carbs, and fats values in your response, even if you have to estimate them."
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Please analyze this food image. Identify what food item(s) are in the image and estimate the calorie count and healthiness. Return your response in JSON format with four fields: 'title' (a brief name of the food), 'description' (a detailed description of the food including ingredients and preparation style), 'calories' (your estimate of calories as a number), and 'healthRating' (an integer from 1 to 5, where 1 means highly processed unhealthy food and 5 means whole/nutritious healthy food)."
+              text: "Please analyze this food image. Identify what food item(s) are in the image and estimate the calorie count, macronutrients, and healthiness. IMPORTANT: You MUST include values for protein, carbs, and fats in grams, even if you need to make an educated guess based on the food type. Return your response in JSON format with these fields: 'title' (a brief name of the food), 'description' (a detailed description of the food including ingredients and preparation style), 'calories' (your estimate of calories as a number), 'protein' (grams of protein), 'carbs' (grams of carbohydrates), 'fats' (grams of fat), and 'healthRating' (an integer from 1 to 5, where 1 means highly processed unhealthy food and 5 means whole/nutritious healthy food)."
             },
             {
               type: "image_url",
@@ -480,6 +483,9 @@ async function sendImageToOpenAIAPI(openai: OpenAI, base64Image: string, mediaTy
           name: parsedResponse.title,
           description: parsedResponse.description,
           calories: parseInt(parsedResponse.calories, 10) || 0,
+          protein: parseInt(parsedResponse.protein, 10) || 0,
+          carbs: parseInt(parsedResponse.carbs, 10) || 0,
+          fats: parseInt(parsedResponse.fats, 10) || 0,
           healthScore: parsedResponse.healthRating || 3 // Default to middle value if missing
         };
       } catch (jsonError) {
@@ -492,6 +498,9 @@ async function sendImageToOpenAIAPI(openai: OpenAI, base64Image: string, mediaTy
     const titleMatch = gptResponse.match(/title[:\s]+([^,\n.]+)/i);
     const descriptionMatch = gptResponse.match(/description[:\s]+([^,\n.]+)/i);
     const caloriesMatch = gptResponse.match(/calories[:\s]+(\d+)/i);
+    const proteinMatch = gptResponse.match(/protein[:\s]+(\d+)/i);
+    const carbsMatch = gptResponse.match(/carbs[:\s]+(\d+)/i);
+    const fatsMatch = gptResponse.match(/fats[:\s]+(\d+)/i);
     const healthRatingMatch = gptResponse.match(/health[Rr]ating[:\s]+(\d+)/i);
 
     if (titleMatch && caloriesMatch) {
@@ -500,6 +509,9 @@ async function sendImageToOpenAIAPI(openai: OpenAI, base64Image: string, mediaTy
         name: titleMatch[1].trim(),
         description: descriptionMatch ? descriptionMatch[1].trim() : titleMatch[1].trim(),
         calories: parseInt(caloriesMatch[1], 10) || 0,
+        protein: proteinMatch ? parseInt(proteinMatch[1], 10) : 0,
+        carbs: carbsMatch ? parseInt(carbsMatch[1], 10) : 0,
+        fats: fatsMatch ? parseInt(fatsMatch[1], 10) : 0,
         healthScore: healthRatingMatch ? parseInt(healthRatingMatch[1], 10) : 3
       };
     }
@@ -923,11 +935,24 @@ export const analyzeImage = async (c: Context<UserEnv>) => {
       );
 
       if (result.success) {
+        // Log the analysis result for debugging
+        console.log('Analysis result:', {
+          name: result.name,
+          calories: result.calories,
+          protein: result.protein || 0,
+          carbs: result.carbs || 0,
+          fats: result.fats || 0,
+          healthScore: result.healthScore
+        });
+        
         return c.json({
           success: true,
           name: result.name,
           description: result.description,
           calories: result.calories,
+          protein: result.protein || 0,
+          carbs: result.carbs || 0,
+          fats: result.fats || 0,
           healthScore: result.healthScore,
           message: "Food analyzed with AI"
         });
@@ -1037,12 +1062,18 @@ export const analyzeImageStream = async (c: Context<UserEnv>) => {
           await stream.write(`Food: ${result.name}\n`);
           await stream.write(`Description: ${result.description}\n`);
           await stream.write(`Calories: ${result.calories}\n`);
+          await stream.write(`Protein: ${result.protein || 0}g\n`);
+          await stream.write(`Carbs: ${result.carbs || 0}g\n`);
+          await stream.write(`Fats: ${result.fats || 0}g\n`);
           await stream.write(`Health Score: ${result.healthScore}\n`);
           await stream.write(JSON.stringify({
             success: true,
             name: result.name,
             description: result.description,
             calories: result.calories,
+            protein: result.protein || 0,
+            carbs: result.carbs || 0,
+            fats: result.fats || 0,
             healthScore: result.healthScore
           }, null, 2));
         } else {

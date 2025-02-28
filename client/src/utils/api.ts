@@ -60,6 +60,9 @@ interface FirestoreDocData {
   name?: string;
   description?: string;
   calories?: number;
+  protein?: number; // Protein in grams
+  carbs?: number;   // Carbs in grams
+  fats?: number;    // Fats in grams
   imageUrl?: string;
   timestamp?: number | FirestoreTimestamp;
   healthScore?: number;
@@ -89,6 +92,9 @@ const convertToMeal = (doc: FirestoreDoc): Meal => {
     name: data.name || '',
     description: data.description || '',
     calories: data.calories || 0,
+    protein: data.protein || 0,
+    carbs: data.carbs || 0,
+    fats: data.fats || 0,
     imageUrl: data.imageUrl || '/placeholder.svg',
     timestamp: timestamp as number || Date.now(),
     healthScore: data.healthScore || 0,
@@ -105,6 +111,27 @@ export const SettingsApi = {
     saveSettings({
       ...settings,
       dailyCalorieTarget
+    });
+    return { success: true };
+  },
+
+  updateMacroTargets: (proteinTarget: number, carbsTarget: number, fatsTarget: number) => {
+    const settings = getSettings();
+    saveSettings({
+      ...settings,
+      proteinTarget,
+      carbsTarget,
+      fatsTarget
+    });
+    return { success: true };
+  },
+
+  updateAllTargets: (dailyCalorieTarget: number, proteinTarget: number, carbsTarget: number, fatsTarget: number) => {
+    saveSettings({
+      dailyCalorieTarget,
+      proteinTarget,
+      carbsTarget,
+      fatsTarget
     });
     return { success: true };
   }
@@ -308,7 +335,7 @@ export const MealsApi = {
   },
   
   // Get meals for a date range (for calendar view)
-  getMealsByDateRange: async (startDate: Date, endDate: Date): Promise<Meal[]> => {
+  getMealsByDateRange: async (startDate: Date | number, endDate: Date | number): Promise<Meal[]> => {
     try {
       const currentUser = auth.currentUser;
       if (!currentUser) {
@@ -316,9 +343,9 @@ export const MealsApi = {
         return [];
       }
       
-      // Convert dates to timestamps
-      const startTimestamp = startDate.getTime();
-      const endTimestamp = endDate.getTime();
+      // Convert input parameters to timestamps if they're Date objects
+      const startTimestamp = startDate instanceof Date ? startDate.getTime() : startDate;
+      const endTimestamp = endDate instanceof Date ? endDate.getTime() : endDate;
       
       try {
         // First try with the compound query (requires index)
@@ -392,6 +419,47 @@ export const MealsApi = {
       return 0;
     }
   },
+
+  // Get daily total macronutrients for a specific date
+  getDailyMacros: async (date: Date = new Date()): Promise<{ protein: number, carbs: number, fats: number }> => {
+    try {
+      // Calculate start and end of day timestamps for the specified date
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(startOfDay);
+      endOfDay.setDate(endOfDay.getDate() + 1);
+      
+      // Get all meals for the specified day - pass Date objects
+      const meals = await MealsApi.getMealsByDateRange(startOfDay, endOfDay);
+      
+      // Calculate total macros
+      const macros = meals.reduce((totals, meal) => {
+        return {
+          protein: totals.protein + (meal.protein || 0),
+          carbs: totals.carbs + (meal.carbs || 0),
+          fats: totals.fats + (meal.fats || 0)
+        };
+      }, { protein: 0, carbs: 0, fats: 0 });
+      
+      return macros;
+    } catch (error) {
+      console.error('Error getting daily macros:', error);
+      return { protein: 0, carbs: 0, fats: 0 };
+    }
+  },
+  
+  // Get remaining macronutrients based on daily targets
+  getRemainingMacros: async (): Promise<{protein: number, carbs: number, fats: number}> => {
+    const settings = SettingsApi.get();
+    const consumedMacros = await MealsApi.getDailyMacros(new Date());
+    
+    return {
+      protein: (settings.proteinTarget || 0) - consumedMacros.protein,
+      carbs: (settings.carbsTarget || 0) - consumedMacros.carbs,
+      fats: (settings.fatsTarget || 0) - consumedMacros.fats,
+    };
+  },
 };
 
 // Meal analysis functionality - still using the server for Claude AI integration
@@ -399,7 +467,15 @@ export const MealAnalysisApi = {
   /**
    * Analyze a meal image and get the food details including healthiness score
    */
-  analyzeImage: async (imageFile: File): Promise<{ name: string, description: string, calories: number, healthScore: number }> => {
+  analyzeImage: async (imageFile: File): Promise<{ 
+    name: string, 
+    description: string, 
+    calories: number, 
+    protein: number, 
+    carbs: number, 
+    fats: number,
+    healthScore: number 
+  }> => {
     const formData = new FormData();
     formData.append('image', imageFile);
     
@@ -422,18 +498,28 @@ export const MealAnalysisApi = {
       }
       
       const data = await response.json();
+      console.log('Raw API response:', data); // Add logging for debugging
       
       if (!data.success) {
         throw new ApiError(data.message || 'Image analysis failed', 400);
       }
       
-      return {
+      // Ensure all values are properly parsed as numbers
+      const result = {
         name: data.name,
         description: data.description || data.name,
-        calories: data.calories,
-        healthScore: data.healthScore || 3 // Default to neutral if not provided
+        calories: Number(data.calories) || 0,
+        // Include macronutrients with defaults if not provided
+        protein: Number(data.protein) || 0,
+        carbs: Number(data.carbs) || 0,
+        fats: Number(data.fats) || 0,
+        healthScore: Number(data.healthScore) || 3 // Default to neutral if not provided
       };
+      
+      console.log('Processed analysis result:', result); // Add logging for debugging
+      return result;
     } catch (error) {
+      console.error('Error in analyzeImage:', error); // Add more detailed error logging
       if (error instanceof ApiError) {
         throw error;
       }
