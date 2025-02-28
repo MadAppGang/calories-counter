@@ -160,7 +160,7 @@ const app = new Hono<UserEnv>();
 app.use('*', logger());
 app.use('*', prettyJSON());
 app.use('*', cors({
-  origin: ['http://localhost:5174', 'http://localhost:5173', 'https://api-wqgzc5qw7a-ts.a.run.app', 'https://caloriescounter-432de.web.app', '*'],
+  origin: ['http://localhost:5174', 'http://localhost:5173', 'https://api-wqgzc5qw7a-ts.a.run.app', 'https://caloriescounter-432de.web.app', 'https://caloriecount.me', 'https://caloriecount.pro', '*'],
   allowHeaders: ['Content-Type', 'Authorization', 'Accept'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   exposeHeaders: ['Content-Length', 'Content-Type'],
