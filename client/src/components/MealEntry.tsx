@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
-import { MealsApi, MealAnalysisApi } from '../utils/api';
+import { MealsApi, MealAnalysisApi, SettingsApi } from '../utils/api';
 import { getSettings } from '../utils/storage';
 
 // Helper function to estimate macronutrients based on calories
@@ -30,6 +30,7 @@ const MealEntry: React.FC = () => {
   const [carbs, setCarbs] = useState<number>(0);
   const [fats, setFats] = useState<number>(0);
   const [healthScore, setHealthScore] = useState<number>(3); // Default to neutral
+  const [selectedDate, setSelectedDate] = useState<'today' | 'yesterday'>('today');
   const navigate = useNavigate();
 
   // Function to create a thumbnail from the full image
@@ -142,6 +143,14 @@ const MealEntry: React.FC = () => {
     setIsSaving(true);
     
     try {
+      // Calculate timestamp based on selectedDate
+      let timestamp = Date.now();
+      
+      // If yesterday is selected, subtract 24 hours
+      if (selectedDate === 'yesterday') {
+        timestamp = Date.now() - (24 * 60 * 60 * 1000);
+      }
+      
       // Save meal to server with the smaller thumbnail image
       const result = await MealsApi.add({
         name: mealName,
@@ -151,7 +160,7 @@ const MealEntry: React.FC = () => {
         carbs,
         fats,
         imageUrl: thumbnailImage, // Use the thumbnail instead of full-size image
-        timestamp: Date.now(),
+        timestamp: timestamp,
         healthScore, // Include health score in the saved data
       });
       
@@ -184,6 +193,37 @@ const MealEntry: React.FC = () => {
       </div>
       
       <div className="bg-white rounded-lg shadow-md p-6">
+        {/* Date selector */}
+        <div className="mb-6">
+          <label className="block text-gray-700 mb-2">
+            Meal Date
+          </label>
+          <div className="flex space-x-2">
+            <button
+              type="button"
+              onClick={() => setSelectedDate('today')}
+              className={`flex-1 py-2 px-4 rounded-md border ${
+                selectedDate === 'today' 
+                  ? 'bg-blue-50 border-blue-500 text-blue-700' 
+                  : 'bg-white border-gray-300 text-gray-700'
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDate('yesterday')}
+              className={`flex-1 py-2 px-4 rounded-md border ${
+                selectedDate === 'yesterday' 
+                  ? 'bg-blue-50 border-blue-500 text-blue-700' 
+                  : 'bg-white border-gray-300 text-gray-700'
+              }`}
+            >
+              Yesterday
+            </button>
+          </div>
+        </div>
+        
         <div className="mb-6">
           <label className="block text-gray-700 mb-2">
             Meal Photo

@@ -124,6 +124,23 @@ export default function CalorieTracker() {
            date.getFullYear() === today.getFullYear();
   }
 
+  // Check if a date is today or yesterday
+  const isTodayOrYesterday = (date: Date): boolean => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+    
+    return (
+      checkDate.getTime() === today.getTime() || 
+      checkDate.getTime() === yesterday.getTime()
+    );
+  }
+
   // Navigate to previous day
   const goToPreviousDay = () => {
     const prevDay = new Date(selectedDate);
@@ -313,7 +330,7 @@ export default function CalorieTracker() {
           <h2 className="text-lg font-medium">
             {formatDate(selectedDate)}
           </h2>
-          {!isToday(selectedDate) && (
+          {!isTodayOrYesterday(selectedDate) && (
             <Button 
               variant="link" 
               size="sm" 
@@ -352,7 +369,7 @@ export default function CalorieTracker() {
           ) : meals.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground bg-white rounded-lg shadow-sm border p-6">
               <p className="text-lg font-medium mb-2">No meals tracked on {formatDate(selectedDate)}.</p>
-              {isToday(selectedDate) ? (
+              {isTodayOrYesterday(selectedDate) ? (
                 <>
                   <p className="mb-6">Add your first meal to start tracking!</p>
                   <Button className="px-8" size="lg" onClick={handleAddMeal}>
@@ -371,7 +388,7 @@ export default function CalorieTracker() {
           ) : (
             <div>
               <h2 className="text-xl font-semibold mb-4">
-                {isToday(selectedDate) ? "Today's Meals" : "Meals for this Day"}
+                {isTodayOrYesterday(selectedDate) ? "Today's Meals" : "Meals for this Day"}
               </h2>
               <div className="space-y-4 mb-6">
                 {meals.map((meal) => (
@@ -424,7 +441,7 @@ export default function CalorieTracker() {
                   </div>
                 ))}
               </div>
-              {isToday(selectedDate) && (
+              {isTodayOrYesterday(selectedDate) && (
                 <Button className="w-full py-6 text-lg" size="lg" onClick={handleAddMeal}>
                   <Plus className="mr-2 h-5 w-5" /> Add New Meal
                 </Button>
