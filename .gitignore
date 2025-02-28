@@ -25,3 +25,5 @@ dist-ssr
 client/.vite/deps_temp_6cf35002
 client/.firebase
 server/lib
+flutter_app/ios
+flutter_app/macos
