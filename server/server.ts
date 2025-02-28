@@ -42,6 +42,11 @@ if (!isFirebaseFunctions) {
       process.env.CLAUDE_API_KEY = functionConfig.claude.api_key;
     }
 
+    // Add OpenAI API key from Firebase config
+    if (!process.env.OPENAI_API_KEY && functionConfig?.openai?.api_key) {
+      process.env.OPENAI_API_KEY = functionConfig.openai.api_key;
+    }
+
     // Firebase Admin SDK config - Using non-reserved names when in Functions
     if (!process.env.PROJECT_ID && functionConfig?.project?.id) {
       process.env.PROJECT_ID = functionConfig.project.id;
@@ -66,6 +71,7 @@ if (!isFirebaseFunctions) {
 
 // Get environment variables
 const CLAUDE_API_KEY: string | undefined = process.env.CLAUDE_API_KEY;
+const OPENAI_API_KEY: string | undefined = process.env.OPENAI_API_KEY;
 // Change PORT to SERVER_PORT to avoid reserved name
 const SERVER_PORT: number = parseInt(process.env.SERVER_PORT || '3002', 10);
 
@@ -154,7 +160,7 @@ const app = new Hono<UserEnv>();
 app.use('*', logger());
 app.use('*', prettyJSON());
 app.use('*', cors({
-  origin: ['http://localhost:5174', 'https://api-wqgzc5qw7a-ts.a.run.app', 'https://caloriescounter-432de.web.app', '*'],
+  origin: ['http://localhost:5174', 'http://localhost:5173', 'https://api-wqgzc5qw7a-ts.a.run.app', 'https://caloriescounter-432de.web.app', '*'],
   allowHeaders: ['Content-Type', 'Authorization', 'Accept'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   exposeHeaders: ['Content-Length', 'Content-Type'],
@@ -193,7 +199,10 @@ if (import.meta.url === import.meta.main) {
   // Log successful startup and API key status
   console.log(`Server running on port ${SERVER_PORT}`);
   if (!CLAUDE_API_KEY) {
-    console.warn('Warning: CLAUDE_API_KEY environment variable is not set. The AI analysis feature will not function properly.');
+    console.warn('Warning: CLAUDE_API_KEY environment variable is not set. The Claude AI analysis feature will not function properly.');
+  }
+  if (!OPENAI_API_KEY) {
+    console.warn('Warning: OPENAI_API_KEY environment variable is not set. The OpenAI analysis feature will not function properly.');
   }
 
   // Handle graceful shutdown

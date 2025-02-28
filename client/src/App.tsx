@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import MealEntry from './components/MealEntry';
+import CalendarView from './components/CalendarView';
 import GoogleAuth from './components/auth/GoogleAuth';
 import { AuthProvider, useAuth } from './lib/firebase/AuthContext';
 import './App.css';
@@ -27,37 +28,47 @@ const App: React.FC = () => {
     <AuthProvider>
       <Router>
         <div className="min-h-screen bg-gray-100">
-          <Routes>
-            {/* Auth route */}
-            <Route path="/auth" element={<GoogleAuth />} />
-            
-            {/* Protected routes */}
-            <Route 
-              path="/" 
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/settings" 
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/add-meal" 
-              element={
-                <ProtectedRoute>
-                  <MealEntry />
-                </ProtectedRoute>
-              } 
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <div className="mx-auto max-w-7xl">
+            <Routes>
+              {/* Auth route */}
+              <Route path="/auth" element={<GoogleAuth />} />
+              
+              {/* Protected routes */}
+              <Route 
+                path="/" 
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/settings" 
+                element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/add-meal" 
+                element={
+                  <ProtectedRoute>
+                    <MealEntry />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/calendar" 
+                element={
+                  <ProtectedRoute>
+                    <CalendarView />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </div>
           
           {/* Simple environment indicator for development */}
           {import.meta.env.DEV && (

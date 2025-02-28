@@ -305,7 +305,93 @@ export const MealsApi = {
     const settings = SettingsApi.get();
     const consumedCalories = await MealsApi.getTodayTotalCalories();
     return settings.dailyCalorieTarget - consumedCalories;
-  }
+  },
+  
+  // Get meals for a date range (for calendar view)
+  getMealsByDateRange: async (startDate: Date, endDate: Date): Promise<Meal[]> => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('No authenticated user found');
+        return [];
+      }
+      
+      // Convert dates to timestamps
+      const startTimestamp = startDate.getTime();
+      const endTimestamp = endDate.getTime();
+      
+      try {
+        // First try with the compound query (requires index)
+        const mealsCollection = collection(db, COLLECTIONS.MEALS);
+        const mealsQuery = query(
+          mealsCollection,
+          where('userId', '==', currentUser.uid),
+          where('timestamp', '>=', startTimestamp),
+          where('timestamp', '<', endTimestamp),
+          orderBy('timestamp', 'asc')
+        );
+        
+        const querySnapshot = await getDocs(mealsQuery);
+        
+        const meals: Meal[] = [];
+        querySnapshot.forEach((doc) => {
+          meals.push(convertToMeal(doc));
+        });
+        
+        return meals;
+      } catch (indexError) {
+        // If we get an index error, fallback to a simpler approach
+        console.warn('Index not ready, using fallback query method:', indexError);
+        
+        // Get all user's meals and filter client-side
+        const mealsCollection = collection(db, COLLECTIONS.MEALS);
+        const simpleQuery = query(
+          mealsCollection,
+          where('userId', '==', currentUser.uid)
+        );
+        
+        const querySnapshot = await getDocs(simpleQuery);
+        
+        const meals: Meal[] = [];
+        querySnapshot.forEach((doc) => {
+          const meal = convertToMeal(doc);
+          // Filter by timestamp client-side
+          if (meal.timestamp >= startTimestamp && meal.timestamp < endTimestamp) {
+            meals.push(meal);
+          }
+        });
+        
+        // Sort by timestamp (ascending) client-side
+        meals.sort((a, b) => a.timestamp - b.timestamp);
+        
+        return meals;
+      }
+    } catch (error) {
+      console.error('Error fetching meals for date range from Firestore:', error);
+      return [];
+    }
+  },
+  
+  // Get daily total calories for a specific date
+  getDailyTotalCalories: async (date: Date): Promise<number> => {
+    try {
+      // Calculate start and end of the specific day
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(startOfDay);
+      endOfDay.setDate(endOfDay.getDate() + 1);
+      
+      // Get meals for this day
+      const mealsForDay = await MealsApi.getMealsByDateRange(startOfDay, endOfDay);
+      
+      // Sum up calories
+      return mealsForDay.reduce((total, meal) => total + meal.calories, 0);
+    } catch (error) {
+      console.error('Error calculating daily total calories:', error);
+      return 0;
+    }
+  },
 };
 
 // Meal analysis functionality - still using the server for Claude AI integration

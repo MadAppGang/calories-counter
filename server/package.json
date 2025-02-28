@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "description": "Backend for calorie tracker app",
   "type": "module",
-  "main": "lib/function.js",
+  "main": "lib/function.ts",
   "engines": {
     "node": "20"
   },
   "scripts": {
-    "start": "node lib/server.js",
-    "start:bun": "bun server.js",
-    "dev": "bun --watch server.js",
-    "dev:ts": "tsc --watch & node --watch lib/server.js",
+    "start": "node lib/server.ts",
+    "start:bun": "bun server.ts",
+    "dev": "bun --watch server.ts",
+    "dev:ts": "tsc --watch & node --watch lib/server.ts",
     "build": "tsc",
     "clean": "rm -rf lib",
     "prebuild": "npm run clean",
@@ -25,10 +25,12 @@
     "firebase-functions": "^4.9.0",
     "hono": "^4.7.2",
     "jsonwebtoken": "^9.0.2",
+    "openai": "^4.86.1",
     "sharp": "^0.33.5"
   },
   "devDependencies": {
     "firebase-functions-test": "^3.1.1",
     "typescript": "^5.4.5"
-  }
+  },
+  "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0"
 }

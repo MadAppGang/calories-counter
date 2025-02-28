@@ -1,6 +1,7 @@
 import { Context } from 'hono';
 import { streamText } from 'hono/streaming';
 import { Anthropic } from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 import admin from 'firebase-admin';
@@ -63,6 +64,7 @@ const COLLECTIONS: FirestoreCollections = {
 
 // Get environment variables
 const CLAUDE_API_KEY: string | undefined = process.env.CLAUDE_API_KEY;
+const OPENAI_API_KEY: string | undefined = process.env.OPENAI_API_KEY;
 
 // Helper functions for working with images and files
 export function getMimeTypeFromExtension(filePath: string): string {
@@ -345,6 +347,174 @@ async function sendImageToAnthropicAPI(anthropic: Anthropic, base64Image: string
     let errorMessage = 'Unknown Claude API error';
     if (claudeError instanceof Error) {
       errorMessage = claudeError.message;
+    }
+
+    return {
+      success: false,
+      error: errorMessage
+    };
+  }
+}
+
+// Function to analyze image with OpenAI
+export async function analyzeImageWithOpenAI(imagePath: string, mimeType: string): Promise<ClaudeAnalysisResult> {
+  try {
+    // Initialize OpenAI client with the API key from environment
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is not set');
+    }
+    
+    const openai = new OpenAI({
+      apiKey: OPENAI_API_KEY,
+    });
+
+    // Validate that the file exists
+    if (!fs.existsSync(imagePath)) {
+      throw new Error(`Image file not found: ${imagePath}`);
+    }
+
+    // Read the image file
+    const imageBuffer = fs.readFileSync(imagePath);
+
+    // Verify the buffer is not empty
+    if (!imageBuffer || imageBuffer.length === 0) {
+      throw new Error('Image buffer is empty');
+    }
+
+    // Get image info before encoding
+    console.log(`Raw image size: ${(imageBuffer.length / 1024).toFixed(2)}KB`);
+
+    // Make sure image is not too large (OpenAI has ~20MB limit for vision requests)
+    const maxSizeBytes = 4 * 1024 * 1024; // 4MB - using same size as Claude for consistency
+    if (imageBuffer.length > maxSizeBytes) {
+      console.log(`Image too large (${(imageBuffer.length / 1024 / 1024).toFixed(2)}MB), compressing...`);
+
+      // Use sharp to resize and compress the image
+      const format = mimeType.includes('png') ? 'png' : 'jpeg';
+      const compressedImageBuffer = await sharp(imageBuffer)
+        .resize({ width: 1280, fit: 'inside', withoutEnlargement: true })
+        .toFormat(format, { quality: 80 })
+        .toBuffer();
+
+      console.log(`Compressed from ${(imageBuffer.length / 1024).toFixed(2)}KB to ${(compressedImageBuffer.length / 1024).toFixed(2)}KB`);
+
+      // Use the compressed buffer instead
+      if (compressedImageBuffer.length < imageBuffer.length) {
+        console.log(`Using compressed image`);
+        // Convert to base64
+        const base64Image = compressedImageBuffer.toString('base64');
+        return await sendImageToOpenAIAPI(openai, base64Image, mimeType);
+      }
+    }
+
+    // If we didn't compress or compression wasn't effective, use original image
+    // Convert to base64
+    const base64Image = imageBuffer.toString('base64');
+
+    // Verify base64 data is valid
+    if (!base64Image || base64Image.length === 0) {
+      throw new Error('Generated base64 image data is empty');
+    }
+
+    // For debugging
+    console.log(`Using media type: ${mimeType} for OpenAI API request`);
+    console.log(`Base64 length: ${base64Image.length} characters`);
+
+    return await sendImageToOpenAIAPI(openai, base64Image, mimeType);
+  } catch (error: unknown) {
+    console.error('Error in OpenAI analysis:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      success: false,
+      error: errorMessage || 'Unknown error in OpenAI analysis'
+    };
+  }
+}
+
+// Helper function to send image to OpenAI API and process response
+async function sendImageToOpenAIAPI(openai: OpenAI, base64Image: string, mediaType: string): Promise<ClaudeAnalysisResult> {
+  try {
+    // Create the message with image content for OpenAI
+    const response = await openai.chat.completions.create({
+      model: "gpt-4.5-preview",
+      max_tokens: 1000,
+      temperature: 0.7,
+      messages: [
+        {
+          role: "system",
+          content: "You are a food analysis assistant that helps identify foods, estimate their caloric content, and evaluate their healthiness."
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Please analyze this food image. Identify what food item(s) are in the image and estimate the calorie count and healthiness. Return your response in JSON format with four fields: 'title' (a brief name of the food), 'description' (a detailed description of the food including ingredients and preparation style), 'calories' (your estimate of calories as a number), and 'healthRating' (an integer from 1 to 5, where 1 means highly processed unhealthy food and 5 means whole/nutritious healthy food)."
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mediaType};base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ]
+    });
+
+    // Parse OpenAI's response to extract the JSON data
+    const gptResponse = response.choices[0]?.message?.content || '';
+    console.log('OpenAI response received successfully');
+
+    // Extract the JSON part from OpenAI's response
+    // This regex looks for a JSON object anywhere in the text
+    const jsonMatch = gptResponse.match(/\{[\s\S]*"title"[\s\S]*"description"[\s\S]*"calories"[\s\S]*"healthRating"[\s\S]*\}/);
+
+    if (jsonMatch) {
+      try {
+        // Parse the extracted JSON
+        const parsedResponse = JSON.parse(jsonMatch[0]);
+
+        return {
+          success: true,
+          name: parsedResponse.title,
+          description: parsedResponse.description,
+          calories: parseInt(parsedResponse.calories, 10) || 0,
+          healthScore: parsedResponse.healthRating || 3 // Default to middle value if missing
+        };
+      } catch (jsonError) {
+        console.error('Error parsing OpenAI response as JSON:', jsonError);
+      }
+    }
+
+    // If JSON extraction fails, attempt to parse the response differently
+    // Look for patterns like "title: Pizza" and "calories: 350"
+    const titleMatch = gptResponse.match(/title[:\s]+([^,\n.]+)/i);
+    const descriptionMatch = gptResponse.match(/description[:\s]+([^,\n.]+)/i);
+    const caloriesMatch = gptResponse.match(/calories[:\s]+(\d+)/i);
+    const healthRatingMatch = gptResponse.match(/health[Rr]ating[:\s]+(\d+)/i);
+
+    if (titleMatch && caloriesMatch) {
+      return {
+        success: true,
+        name: titleMatch[1].trim(),
+        description: descriptionMatch ? descriptionMatch[1].trim() : titleMatch[1].trim(),
+        calories: parseInt(caloriesMatch[1], 10) || 0,
+        healthScore: healthRatingMatch ? parseInt(healthRatingMatch[1], 10) : 3
+      };
+    }
+
+    return {
+      success: false,
+      error: 'Could not parse OpenAI response'
+    };
+  } catch (openaiError: unknown) {
+    console.error('Error calling OpenAI API:', openaiError);
+
+    // Try to extract the detailed error message
+    let errorMessage = 'Unknown OpenAI API error';
+    if (openaiError instanceof Error) {
+      errorMessage = openaiError.message;
     }
 
     return {
@@ -695,7 +865,7 @@ export const analyzeImage = async (c: Context<UserEnv>) => {
     }
 
     // Check if API key is available in environment
-    if (!CLAUDE_API_KEY) {
+    if (!OPENAI_API_KEY) {
       return c.json({
         success: false,
         message: 'Server configuration error: API key not available'
@@ -737,7 +907,7 @@ export const analyzeImage = async (c: Context<UserEnv>) => {
         originalMimeType = getMimeTypeFromExtension(originalFilePath);
       }
 
-      // Process the image to ensure it's in a Claude-compatible format
+      // Process the image to ensure it's in a compatible format
       const processedImage = await processImageForClaude(originalFilePath, originalMimeType);
 
       if (!processedImage.success) {
@@ -746,8 +916,8 @@ export const analyzeImage = async (c: Context<UserEnv>) => {
         processedFilePath = processedImage.path;
       }
 
-      // Use Claude AI to analyze the image
-      const result = await analyzeImageWithClaude(
+      // Use OpenAI to analyze the image
+      const result = await analyzeImageWithOpenAI(
         processedImage.success ? processedImage.path : originalFilePath,
         processedImage.success ? processedImage.mimeType : originalMimeType
       );
@@ -763,7 +933,7 @@ export const analyzeImage = async (c: Context<UserEnv>) => {
         });
       } else {
         // If analysis fails, return error
-        console.error('Claude AI analysis failed:', result.error);
+        console.error('OpenAI analysis failed:', result.error);
         return c.json({
           success: false,
           message: 'Failed to analyze image: ' + result.error
@@ -806,7 +976,7 @@ export const analyzeImageStream = async (c: Context<UserEnv>) => {
     }
 
     // Check if API key is available in environment
-    if (!CLAUDE_API_KEY) {
+    if (!OPENAI_API_KEY) {
       return c.json({
         success: false,
         message: 'Server configuration error: API key not available'
@@ -856,8 +1026,8 @@ export const analyzeImageStream = async (c: Context<UserEnv>) => {
         }
 
         // Analyze image
-        await stream.write('Sending to Claude AI for analysis...\n');
-        const result = await analyzeImageWithClaude(
+        await stream.write('Sending to OpenAI for analysis...\n');
+        const result = await analyzeImageWithOpenAI(
           processedImage.success ? processedImage.path : originalFilePath,
           processedImage.success ? processedImage.mimeType : originalMimeType
         );
