@@ -36,10 +36,15 @@ export default function CalorieTracker() {
           const date = new Date();
           date.setHours(0, 0, 0, 0);
           date.setFullYear(year);
+          // Months in JavaScript Date are 0-indexed (0 = January)
+          // We expect the URL param to contain the same 0-based index as stored in the calendar
           date.setMonth(month);
           date.setDate(day);
           
-          console.log('Created date from URL:', date);
+          console.log('Created date from URL:', date, 
+                     'Y:', date.getFullYear(), 
+                     'M:', date.getMonth(), 
+                     'D:', date.getDate());
           
           // Clean up URL by removing the parameter
           navigate('/', { replace: true });
@@ -462,8 +467,26 @@ function CalorieProgress({ totalCalories, selectedDate }: { totalCalories: numbe
     
     // Get macros for the selected date
     const loadMacros = async () => {
-      const dailyMacros = await MealsApi.getDailyMacros(selectedDate);
-      setMacros(dailyMacros);
+      try {
+        // Ensure selectedDate is a proper Date object
+        if (!(selectedDate instanceof Date) || isNaN(selectedDate.getTime())) {
+          console.error('Invalid selectedDate:', selectedDate);
+          setMacros({ protein: 0, carbs: 0, fats: 0 });
+          return;
+        }
+        
+        console.log('Loading macros for date:', selectedDate,
+                  'Y:', selectedDate.getFullYear(),
+                  'M:', selectedDate.getMonth(),
+                  'D:', selectedDate.getDate());
+        
+        const dailyMacros = await MealsApi.getDailyMacros(selectedDate);
+        console.log('Retrieved daily macros:', dailyMacros);
+        setMacros(dailyMacros);
+      } catch (error) {
+        console.error('Error loading macros:', error);
+        setMacros({ protein: 0, carbs: 0, fats: 0 });
+      }
     };
     
     loadMacros();

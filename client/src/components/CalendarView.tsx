@@ -19,7 +19,87 @@ interface DayData {
   totalCalories: number;
   isCurrentMonth: boolean;
   isToday: boolean;
+  macros: {
+    protein: number;
+    carbs: number;
+    fats: number;
+  };
 }
+
+// Component to display compact macronutrient information
+const MacroDisplay = ({ 
+  protein, 
+  carbs, 
+  fats,
+  proteinTarget,
+  carbsTarget,
+  fatsTarget
+}: { 
+  protein: number; 
+  carbs: number; 
+  fats: number;
+  proteinTarget: number;
+  carbsTarget: number;
+  fatsTarget: number;
+}) => {
+  if (protein === 0 && carbs === 0 && fats === 0) return null;
+  
+  // Make sure targets are not zero to avoid division by zero
+  const safeProteinTarget = proteinTarget || 50; // Default if target is 0
+  const safeCarbsTarget = carbsTarget || 250;
+  const safeFatsTarget = fatsTarget || 65;
+  
+  // Calculate percentages of targets (capped at 100%)
+  const proteinPercent = Math.min(100, Math.max(0, (protein / safeProteinTarget) * 100));
+  const carbsPercent = Math.min(100, Math.max(0, (carbs / safeCarbsTarget) * 100));
+  const fatsPercent = Math.min(100, Math.max(0, (fats / safeFatsTarget) * 100));
+  
+  // Ensure even very small values show up
+  const minVisibleWidth = 2; // Minimum width in percentage to make small values visible
+  
+  const visibleProteinWidth = protein > 0 ? Math.max(minVisibleWidth, proteinPercent) : 0;
+  const visibleCarbsWidth = carbs > 0 ? Math.max(minVisibleWidth, carbsPercent) : 0;
+  const visibleFatsWidth = fats > 0 ? Math.max(minVisibleWidth, fatsPercent) : 0;
+  
+  // Format tooltips with percentage information
+  const proteinTooltip = `Protein: ${Math.round(protein)}g of ${safeProteinTarget}g target (${Math.round(proteinPercent)}%)`;
+  const carbsTooltip = `Carbs: ${Math.round(carbs)}g of ${safeCarbsTarget}g target (${Math.round(carbsPercent)}%)`;
+  const fatsTooltip = `Fats: ${Math.round(fats)}g of ${safeFatsTarget}g target (${Math.round(fatsPercent)}%)`;
+  
+  // Format for overall tooltip
+  const macroLabel = `Protein: ${Math.round(protein)}g (${Math.round(proteinPercent)}%), Carbs: ${Math.round(carbs)}g (${Math.round(carbsPercent)}%), Fats: ${Math.round(fats)}g (${Math.round(fatsPercent)}%)`;
+  
+  return (
+    <div className="mt-0.5 flex flex-col space-y-0.5 mb-1" title={macroLabel}>
+      {/* Protein bar */}
+      <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+        <div 
+          className="h-full bg-blue-500 rounded-full"
+          style={{ width: `${visibleProteinWidth}%` }}
+          title={proteinTooltip}
+        ></div>
+      </div>
+      
+      {/* Carbs bar */}
+      <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+        <div 
+          className="h-full bg-yellow-500 rounded-full"
+          style={{ width: `${visibleCarbsWidth}%` }}
+          title={carbsTooltip}
+        ></div>
+      </div>
+      
+      {/* Fats bar */}
+      <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+        <div 
+          className="h-full bg-pink-500 rounded-full"
+          style={{ width: `${visibleFatsWidth}%` }}
+          title={fatsTooltip}
+        ></div>
+      </div>
+    </div>
+  );
+};
 
 export default function CalendarView() {
   const navigate = useNavigate();
@@ -28,6 +108,9 @@ export default function CalendarView() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dailyCalorieTarget, setDailyCalorieTarget] = useState(2000);
+  const [dailyProteinTarget, setDailyProteinTarget] = useState(50);
+  const [dailyCarbsTarget, setDailyCarbsTarget] = useState(250);
+  const [dailyFatsTarget, setDailyFatsTarget] = useState(65);
   const [monthMeals, setMonthMeals] = useState<Meal[]>([]);
 
   // Handle day click to navigate to dashboard with the selected date
@@ -82,7 +165,20 @@ export default function CalendarView() {
       try {
         // Load user settings
         const settings = SettingsApi.get();
-        setDailyCalorieTarget(settings.dailyCalorieTarget);
+        console.log('Loaded settings:', settings);
+        
+        // Set targets with fallbacks to default values
+        setDailyCalorieTarget(settings.dailyCalorieTarget || 2000);
+        setDailyProteinTarget(settings.proteinTarget || 150);
+        setDailyCarbsTarget(settings.carbsTarget || 250);
+        setDailyFatsTarget(settings.fatsTarget || 45);
+        
+        console.log('Set macro targets:', {
+          calories: settings.dailyCalorieTarget || 2000,
+          protein: settings.proteinTarget || 150,
+          carbs: settings.carbsTarget || 250,
+          fats: settings.fatsTarget || 45
+        });
 
         // Calculate start and end dates for the month view
         // We'll also include the last few days of previous month and first few days of next month
@@ -137,6 +233,15 @@ export default function CalendarView() {
           const dayMeals = mealsByDay[dateKey] || [];
           const totalCalories = dayMeals.reduce((sum, meal) => sum + meal.calories, 0);
           
+          // Calculate macronutrient totals for this day
+          const macros = dayMeals.reduce((totals, meal) => {
+            return {
+              protein: totals.protein + (meal.protein || 0),
+              carbs: totals.carbs + (meal.carbs || 0),
+              fats: totals.fats + (meal.fats || 0)
+            };
+          }, { protein: 0, carbs: 0, fats: 0 });
+          
           // Check if this day is today
           const isToday = 
             today.getFullYear() === year && 
@@ -150,7 +255,8 @@ export default function CalendarView() {
             date: new Date(currentDatePointer),
             totalCalories,
             isCurrentMonth,
-            isToday
+            isToday,
+            macros
           });
           
           // Move to next day
@@ -300,7 +406,7 @@ export default function CalendarView() {
                   <div 
                     key={index} 
                     className={`
-                      border border-gray-100 p-1 sm:p-2 h-16 sm:h-24 lg:h-32 overflow-hidden
+                      border border-gray-100 p-1 sm:p-2 h-18 sm:h-26 lg:h-32 overflow-hidden
                       ${!day.isCurrentMonth ? 'bg-gray-50 text-gray-400' : ''}
                       ${day.isToday ? 'ring-2 ring-blue-500 ring-inset' : ''}
                       cursor-pointer hover:bg-gray-50 transition-colors
@@ -316,14 +422,36 @@ export default function CalendarView() {
                     </div>
                     
                     {day.totalCalories > 0 ? (
-                      <div 
-                        className={`
-                          text-center py-1 sm:py-2 rounded-md mt-1 text-xs sm:text-sm font-medium
-                          ${getCalorieColor(day.totalCalories)}
-                        `}
-                      >
-                        {day.totalCalories} cal
-                      </div>
+                      <>
+                        <div 
+                          className={`
+                            text-center py-0.5 rounded-md mt-0.5 text-xs sm:text-sm font-medium
+                            ${getCalorieColor(day.totalCalories)}
+                          `}
+                        >
+                          {day.totalCalories} cal
+                        </div>
+                        {/* Log macros and targets for days with data */}
+                        {day.date.getDate() === 15 && (() => {
+                          console.log(`Macro data for day ${day.date.toLocaleDateString()}:`, {
+                            macros: day.macros,
+                            targets: {
+                              protein: dailyProteinTarget,
+                              carbs: dailyCarbsTarget,
+                              fats: dailyFatsTarget
+                            }
+                          });
+                          return null;
+                        })()}
+                        <MacroDisplay 
+                          protein={day.macros.protein} 
+                          carbs={day.macros.carbs} 
+                          fats={day.macros.fats} 
+                          proteinTarget={dailyProteinTarget}
+                          carbsTarget={dailyCarbsTarget}
+                          fatsTarget={dailyFatsTarget}
+                        />
+                      </>
                     ) : (
                       <div className="text-xs text-gray-400 italic text-center mt-2">
                         -
@@ -368,12 +496,41 @@ export default function CalendarView() {
               </div>
             </div>
             
+            <div className="mt-4">
+              <h4 className="font-medium text-sm mb-3">Macronutrient Legend</h4>
+              <div className="space-y-3">
+                <div className="flex items-center">
+                  <div className="w-10 mr-3">
+                    <div className="h-2 bg-blue-500 rounded-full"></div>
+                  </div>
+                  <span className="text-sm">Protein ({dailyProteinTarget}g target)</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-10 mr-3">
+                    <div className="h-2 bg-yellow-500 rounded-full"></div>
+                  </div>
+                  <span className="text-sm">Carbs ({dailyCarbsTarget}g target)</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-10 mr-3">
+                    <div className="h-2 bg-pink-500 rounded-full"></div>
+                  </div>
+                  <span className="text-sm">Fats ({dailyFatsTarget}g target)</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Bar lengths show progress toward daily targets. Hover for exact values.
+                </p>
+              </div>
+            </div>
+            
             <div className="mt-6 pt-6 border-t border-gray-100">
               <h4 className="font-medium text-sm mb-3">Tips</h4>
               <ul className="text-sm text-gray-600 space-y-2">
                 <li>• Click on any day to view detailed meals on dashboard</li>
                 <li>• Days with recorded meals show calorie counts</li>
-                <li>• Colors indicate how your intake compares to your target</li>
+                <li>• Colors indicate how your calorie intake compares to your target</li>
+                <li>• Progress bars show how close you are to your daily macro targets</li>
+                <li>• Hover over bars to see exact values and targets</li>
                 <li>• Use the calendar for tracking patterns over time</li>
               </ul>
             </div>
