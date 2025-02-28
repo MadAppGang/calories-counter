@@ -30,6 +30,32 @@ export default function CalendarView() {
   const [dailyCalorieTarget, setDailyCalorieTarget] = useState(2000);
   const [monthMeals, setMonthMeals] = useState<Meal[]>([]);
 
+  // Handle day click to navigate to dashboard with the selected date
+  const handleDayClick = (date: Date) => {
+    console.log('Calendar day clicked:', date);
+    
+    // We need to preserve the exact date components to avoid timezone issues
+    const selectedDate = {
+      year: date.getFullYear(),
+      month: date.getMonth(),
+      day: date.getDate()
+    };
+    
+    console.log('Storing date components:', selectedDate);
+    
+    // Store the date components as JSON instead of Date object
+    localStorage.setItem('selectedDashboardDate', JSON.stringify(selectedDate));
+    
+    // Force the storage to take effect immediately
+    console.log('Stored in localStorage:', localStorage.getItem('selectedDashboardDate'));
+    
+    // Use URL search parameters as well for more reliable transfer
+    const dateParam = `${selectedDate.year}-${selectedDate.month}-${selectedDate.day}`;
+    
+    // Navigate back to dashboard with the date parameter
+    navigate(`/?date=${dateParam}`);
+  };
+
   // Get current year and month
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
@@ -277,7 +303,11 @@ export default function CalendarView() {
                       border border-gray-100 p-1 sm:p-2 h-16 sm:h-24 lg:h-32 overflow-hidden
                       ${!day.isCurrentMonth ? 'bg-gray-50 text-gray-400' : ''}
                       ${day.isToday ? 'ring-2 ring-blue-500 ring-inset' : ''}
+                      cursor-pointer hover:bg-gray-50 transition-colors
                     `}
+                    onClick={() => handleDayClick(day.date)}
+                    role="button"
+                    aria-label={`View meals for ${day.date.toLocaleDateString()}`}
                   >
                     <div className="text-right mb-1">
                       <span className="text-xs sm:text-sm lg:text-base font-medium">
@@ -341,9 +371,10 @@ export default function CalendarView() {
             <div className="mt-6 pt-6 border-t border-gray-100">
               <h4 className="font-medium text-sm mb-3">Tips</h4>
               <ul className="text-sm text-gray-600 space-y-2">
-                <li>• Click on a day to view detailed meals</li>
-                <li>• Maintain consistent tracking for better insights</li>
-                <li>• Aim for a calorie intake near your daily target</li>
+                <li>• Click on any day to view detailed meals on dashboard</li>
+                <li>• Days with recorded meals show calorie counts</li>
+                <li>• Colors indicate how your intake compares to your target</li>
+                <li>• Use the calendar for tracking patterns over time</li>
               </ul>
             </div>
           </div>

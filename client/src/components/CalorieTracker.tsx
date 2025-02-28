@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { Plus, Settings, Trash, LogOut, Calendar } from "lucide-react"
+import { Plus, Settings, Trash, LogOut, Calendar, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { MealsApi, SettingsApi } from "../utils/api"
 import { Meal } from "../types"
@@ -16,15 +16,151 @@ export default function CalorieTracker() {
   const navigate = useNavigate()
   const { logout } = useAuth()
 
-  // Load meals from server
+  // Extract date from URL if provided
+  const getDateFromUrl = () => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const dateParam = searchParams.get('date');
+    console.log('Date parameter from URL:', dateParam);
+    
+    if (dateParam) {
+      try {
+        // Date format is expected to be "YYYY-M-D"
+        const [yearStr, monthStr, dayStr] = dateParam.split('-');
+        const year = parseInt(yearStr, 10);
+        const month = parseInt(monthStr, 10);
+        const day = parseInt(dayStr, 10);
+        
+        console.log('Parsed URL parameters - year:', year, 'month:', month, 'day:', day);
+        
+        if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+          const date = new Date();
+          date.setHours(0, 0, 0, 0);
+          date.setFullYear(year);
+          date.setMonth(month);
+          date.setDate(day);
+          
+          console.log('Created date from URL:', date);
+          
+          // Clean up URL by removing the parameter
+          navigate('/', { replace: true });
+          
+          return date;
+        }
+      } catch (error) {
+        console.error('Error parsing date from URL:', error);
+      }
+    }
+    
+    return null;
+  };
+
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    // First check URL parameters
+    const dateFromUrl = getDateFromUrl();
+    if (dateFromUrl) {
+      console.log('Using date from URL parameters');
+      return dateFromUrl;
+    }
+    
+    // Then check localStorage
+    const storedDate = localStorage.getItem('selectedDashboardDate');
+    console.log('Dashboard loading - stored date in localStorage:', storedDate);
+    
+    if (storedDate) {
+      try {
+        // Parse the stored date components
+        const dateComponents = JSON.parse(storedDate);
+        console.log('Parsed date components:', dateComponents);
+        
+        // Create a new date with the components (year, month, day)
+        const parsedDate = new Date();
+        // Reset time to start of day first to avoid any unexpected behavior
+        parsedDate.setHours(0, 0, 0, 0);
+        parsedDate.setFullYear(dateComponents.year);
+        parsedDate.setMonth(dateComponents.month);
+        parsedDate.setDate(dateComponents.day);
+        
+        console.log('Created date from components:', parsedDate, 
+                    'Y:', parsedDate.getFullYear(), 
+                    'M:', parsedDate.getMonth(), 
+                    'D:', parsedDate.getDate());
+        
+        // Clear the stored date so it's a one-time use
+        localStorage.removeItem('selectedDashboardDate');
+        console.log('Removed from localStorage, now contains:', localStorage.getItem('selectedDashboardDate'));
+        
+        return parsedDate;
+      } catch (error) {
+        console.error('Error parsing stored date:', error);
+        // Fall back to today's date if parsing fails
+        return new Date();
+      }
+    }
+    // Otherwise use today's date
+    console.log('No stored date found, using today');
+    return new Date();
+  })
+
+  // Format date for display (e.g., "Monday, June 10, 2024")
+  const formatDate = (date: Date): string => {
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      month: 'long', 
+      day: 'numeric',
+      year: 'numeric'
+    });
+  }
+
+  // Check if a date is today
+  const isToday = (date: Date): boolean => {
+    const today = new Date();
+    return date.getDate() === today.getDate() && 
+           date.getMonth() === today.getMonth() && 
+           date.getFullYear() === today.getFullYear();
+  }
+
+  // Navigate to previous day
+  const goToPreviousDay = () => {
+    const prevDay = new Date(selectedDate);
+    prevDay.setDate(prevDay.getDate() - 1);
+    setSelectedDate(prevDay);
+  }
+
+  // Navigate to next day
+  const goToNextDay = () => {
+    const nextDay = new Date(selectedDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    setSelectedDate(nextDay);
+  }
+
+  // Navigate to today
+  const goToToday = () => {
+    setSelectedDate(new Date());
+  }
+
+  // Load meals for the selected date
   const loadMeals = async () => {
+    console.log('Loading meals for date:', selectedDate, 
+                'Y:', selectedDate.getFullYear(), 
+                'M:', selectedDate.getMonth(), 
+                'D:', selectedDate.getDate());
+    
     setIsLoading(true);
     try {
-      // Get today's meals from server
-      const todayMeals = await MealsApi.getToday();
+      // Calculate start and end of the selected day
+      const startOfDay = new Date(selectedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(startOfDay);
+      endOfDay.setDate(endOfDay.getDate() + 1);
+      
+      console.log('Fetching meals from', startOfDay, 'to', endOfDay);
+      
+      // Get meals for the selected day
+      const mealsForDay = await MealsApi.getMealsByDateRange(startOfDay, endOfDay);
       
       // Transform the meals to include time and healthScore
-      const formattedMeals = todayMeals.map(meal => ({
+      const formattedMeals = mealsForDay.map(meal => ({
         ...meal,
         time: formatTimestamp(meal.timestamp),
         healthScore: meal.healthScore || calculateHealthScore(meal.calories),
@@ -33,7 +169,7 @@ export default function CalorieTracker() {
       setMeals(formattedMeals);
       
       // Calculate total calories
-      const total = todayMeals.reduce((sum, meal) => sum + meal.calories, 0);
+      const total = mealsForDay.reduce((sum, meal) => sum + meal.calories, 0);
       setTotalCalories(total);
     } catch (error) {
       console.error('Error loading meals:', error);
@@ -67,9 +203,9 @@ export default function CalorieTracker() {
   };
 
   useEffect(() => {
-    // Load today's meals on component mount
+    // Load meals whenever the selected date changes
     loadMeals();
-  }, []);
+  }, [selectedDate]);
 
   // Format timestamp to time string (e.g., "08:30 AM")
   const formatTimestamp = (timestamp: number): string => {
@@ -153,6 +289,44 @@ export default function CalorieTracker() {
         </div>
       </div>
 
+      {/* Date Navigation Controls */}
+      <div className="flex items-center justify-between mb-6 bg-white rounded-lg shadow-sm border p-3">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={goToPreviousDay}
+          aria-label="Previous day"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </Button>
+        
+        <div className="flex flex-col items-center">
+          <h2 className="text-lg font-medium">
+            {formatDate(selectedDate)}
+          </h2>
+          {!isToday(selectedDate) && (
+            <Button 
+              variant="link" 
+              size="sm" 
+              onClick={goToToday}
+              className="text-sm text-primary"
+            >
+              <CalendarDays className="h-3 w-3 mr-1" />
+              Go to Today
+            </Button>
+          )}
+        </div>
+        
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={goToNextDay}
+          aria-label="Next day"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </Button>
+      </div>
+
       <div className="lg:grid lg:grid-cols-12 lg:gap-8">
         <div className="lg:col-span-4 lg:mb-0">
           <CalorieProgress totalCalories={totalCalories} />
@@ -165,15 +339,28 @@ export default function CalorieTracker() {
             </div>
           ) : meals.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground bg-white rounded-lg shadow-sm border p-6">
-              <p className="text-lg font-medium mb-2">No meals tracked today.</p>
-              <p className="mb-6">Add your first meal to start tracking!</p>
-              <Button className="px-8" size="lg" onClick={handleAddMeal}>
-                <Plus className="mr-2 h-5 w-5" /> Add First Meal
-              </Button>
+              <p className="text-lg font-medium mb-2">No meals tracked on {formatDate(selectedDate)}.</p>
+              {isToday(selectedDate) ? (
+                <>
+                  <p className="mb-6">Add your first meal to start tracking!</p>
+                  <Button className="px-8" size="lg" onClick={handleAddMeal}>
+                    <Plus className="mr-2 h-5 w-5" /> Add First Meal
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="mb-6">Try another day or go back to today.</p>
+                  <Button className="px-8" size="lg" onClick={goToToday}>
+                    <CalendarDays className="mr-2 h-5 w-5" /> Go to Today
+                  </Button>
+                </>
+              )}
             </div>
           ) : (
             <div>
-              <h2 className="text-xl font-semibold mb-4">Today's Meals</h2>
+              <h2 className="text-xl font-semibold mb-4">
+                {isToday(selectedDate) ? "Today's Meals" : "Meals for this Day"}
+              </h2>
               <div className="space-y-4 mb-6">
                 {meals.map((meal) => (
                   <div key={meal.id} className="flex items-center bg-white rounded-lg p-3 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
@@ -214,9 +401,11 @@ export default function CalorieTracker() {
                   </div>
                 ))}
               </div>
-              <Button className="w-full py-6 text-lg" size="lg" onClick={handleAddMeal}>
-                <Plus className="mr-2 h-5 w-5" /> Add New Meal
-              </Button>
+              {isToday(selectedDate) && (
+                <Button className="w-full py-6 text-lg" size="lg" onClick={handleAddMeal}>
+                  <Plus className="mr-2 h-5 w-5" /> Add New Meal
+                </Button>
+              )}
             </div>
           )}
         </div>
