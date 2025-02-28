@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:dev": "tsc && vite build --mode development",
-    "build:prod": "tsc && vite build --mode production",
+    "build:prod": "pnpm vite build --mode production",
     "preview": "vite preview"
   },
   "dependencies": {

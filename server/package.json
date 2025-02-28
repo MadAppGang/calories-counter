@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Backend for calorie tracker app",
   "type": "module",
-  "main": "lib/function.ts",
+  "main": "lib/function.js",
   "engines": {
     "node": "20"
   },
@@ -22,7 +22,7 @@
     "@google-cloud/functions-framework": "^3.4.5",
     "dotenv": "^16.4.7",
     "firebase-admin": "^13.1.0",
-    "firebase-functions": "^4.9.0",
+    "firebase-functions": "^6.3.2",
     "hono": "^4.7.2",
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.86.1",
