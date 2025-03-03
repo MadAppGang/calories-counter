@@ -525,5 +525,75 @@ export const MealAnalysisApi = {
       }
       throw new ApiError('Network error', 500);
     }
+  },
+
+  /**
+   * Correct a meal analysis with user feedback
+   */
+  correctMealAnalysis: async (
+    imageFile: File, 
+    previousResult: string, 
+    correctionText: string
+  ): Promise<{ 
+    name: string, 
+    description: string, 
+    calories: number, 
+    protein: number, 
+    carbs: number, 
+    fats: number,
+    healthScore: number 
+  }> => {
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    formData.append('previousResult', previousResult);
+    formData.append('correctionText', correctionText);
+    
+    try {
+      const token = await getAuthToken();
+      
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      console.log('Sending correction request:', { previousResult, correctionText });
+      
+      const response = await fetch(`${API_BASE_URL}/correct-meal`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new ApiError('Failed to process meal correction', response.status);
+      }
+      
+      const data = await response.json();
+      console.log('Correction API response:', data);
+      
+      if (!data.success) {
+        throw new ApiError(data.message || 'Meal correction failed', 400);
+      }
+      
+      // Ensure all values are properly parsed as numbers
+      const result = {
+        name: data.name,
+        description: data.description || data.name,
+        calories: Number(data.calories) || 0,
+        protein: Number(data.protein) || 0,
+        carbs: Number(data.carbs) || 0,
+        fats: Number(data.fats) || 0,
+        healthScore: Number(data.healthScore) || 3
+      };
+      
+      console.log('Processed correction result:', result);
+      return result;
+    } catch (error) {
+      console.error('Error in correctMealAnalysis:', error);
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError('Network error', 500);
+    }
   }
 }; 

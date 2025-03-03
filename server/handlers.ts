@@ -3,9 +3,11 @@ import { streamText } from 'hono/streaming';
 import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import admin from 'firebase-admin';
 import sharp from 'sharp';
+import os from 'os';
 
 // Type definitions
 interface MealData {
@@ -93,14 +95,14 @@ export async function saveUploadedFile(file: File, filename: string): Promise<st
     // With Bun, we can directly use the arrayBuffer() method
     if (typeof file.arrayBuffer === 'function') {
       const buffer = Buffer.from(await file.arrayBuffer());
-      await fs.promises.writeFile(filePath, buffer);
+      await fsPromises.writeFile(filePath, buffer);
       return filePath;
     }
 
     // Fallback for other environments
     console.log('Using fallback file writing method');
     // @ts-expect-error - file.stream might not be properly typed in all environments
-    await fs.promises.writeFile(filePath, file.stream);
+    await fsPromises.writeFile(filePath, file.stream);
     return filePath;
   } catch (error: unknown) {
     console.error('Error saving file:', error);
@@ -111,7 +113,7 @@ export async function saveUploadedFile(file: File, filename: string): Promise<st
 
 export async function validateImage(filePath: string): Promise<ValidationResult> {
   try {
-    const stats = await fs.promises.stat(filePath);
+    const stats = await fsPromises.stat(filePath);
     const fileSizeInMB = stats.size / (1024 * 1024);
 
     // Claude has a limit around 5MB for images, we'll use 4.5MB to be safe
@@ -360,178 +362,144 @@ async function sendImageToAnthropicAPI(anthropic: Anthropic, base64Image: string
 }
 
 // Function to analyze image with OpenAI
-export async function analyzeImageWithOpenAI(imagePath: string, mimeType: string): Promise<ClaudeAnalysisResult> {
+export async function analyzeImageWithOpenAI(
+  imagePath: string, 
+  mimeType: string,
+  correctionInfo?: { previousResult: string, correctionText: string }
+): Promise<ClaudeAnalysisResult> {
   try {
-    // Initialize OpenAI client with the API key from environment
-    if (!OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is not set');
+    console.log('Sending image to OpenAI for analysis');
+    
+    // Check for OpenAI API key
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error('OpenAI API key is missing');
+      return {
+        success: false,
+        error: 'OpenAI API key is missing'
+      };
     }
     
+    // Initialize OpenAI client
     const openai = new OpenAI({
-      apiKey: OPENAI_API_KEY,
+      apiKey
     });
-
-    // Validate that the file exists
-    if (!fs.existsSync(imagePath)) {
-      throw new Error(`Image file not found: ${imagePath}`);
-    }
-
+    
     // Read the image file
-    const imageBuffer = fs.readFileSync(imagePath);
-
-    // Verify the buffer is not empty
-    if (!imageBuffer || imageBuffer.length === 0) {
-      throw new Error('Image buffer is empty');
-    }
-
-    // Get image info before encoding
-    console.log(`Raw image size: ${(imageBuffer.length / 1024).toFixed(2)}KB`);
-
-    // Make sure image is not too large (OpenAI has ~20MB limit for vision requests)
-    const maxSizeBytes = 4 * 1024 * 1024; // 4MB - using same size as Claude for consistency
-    if (imageBuffer.length > maxSizeBytes) {
-      console.log(`Image too large (${(imageBuffer.length / 1024 / 1024).toFixed(2)}MB), compressing...`);
-
-      // Use sharp to resize and compress the image
-      const format = mimeType.includes('png') ? 'png' : 'jpeg';
-      const compressedImageBuffer = await sharp(imageBuffer)
-        .resize({ width: 1280, fit: 'inside', withoutEnlargement: true })
-        .toFormat(format, { quality: 80 })
-        .toBuffer();
-
-      console.log(`Compressed from ${(imageBuffer.length / 1024).toFixed(2)}KB to ${(compressedImageBuffer.length / 1024).toFixed(2)}KB`);
-
-      // Use the compressed buffer instead
-      if (compressedImageBuffer.length < imageBuffer.length) {
-        console.log(`Using compressed image`);
-        // Convert to base64
-        const base64Image = compressedImageBuffer.toString('base64');
-        return await sendImageToOpenAIAPI(openai, base64Image, mimeType);
-      }
-    }
-
-    // If we didn't compress or compression wasn't effective, use original image
-    // Convert to base64
+    const imageBuffer = await fsPromises.readFile(imagePath);
     const base64Image = imageBuffer.toString('base64');
+    
+    // Prepare system message
+    const systemMessage = `You are a meal analysis assistant. Analyze the food image and extract the following information:
+1. Name of the dish/meal
+2. Brief description
+3. Estimated calories
+4. Estimated macronutrients (protein, carbs, fats in grams)
+5. Health score (1-10)
 
-    // Verify base64 data is valid
-    if (!base64Image || base64Image.length === 0) {
-      throw new Error('Generated base64 image data is empty');
+Format your response as a valid JSON object with the following keys:
+{
+  "name": "string",
+  "description": "string",
+  "calories": number,
+  "protein": number,
+  "carbs": number,
+  "fats": number,
+  "healthScore": number
+}`;
+
+    // Prepare user message
+    let userPrompt = "Analyze this food image and provide nutritional information.";
+    if (correctionInfo) {
+      userPrompt = `Previous analysis result: ${correctionInfo.previousResult}\n\nUser correction: ${correctionInfo.correctionText}\n\nPlease reanalyze the food image with this correction in mind.`;
     }
-
-    // For debugging
-    console.log(`Using media type: ${mimeType} for OpenAI API request`);
-    console.log(`Base64 length: ${base64Image.length} characters`);
-
-    return await sendImageToOpenAIAPI(openai, base64Image, mimeType);
-  } catch (error: unknown) {
-    console.error('Error in OpenAI analysis:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      success: false,
-      error: errorMessage || 'Unknown error in OpenAI analysis'
-    };
-  }
-}
-
-// Helper function to send image to OpenAI API and process response
-async function sendImageToOpenAIAPI(openai: OpenAI, base64Image: string, mediaType: string): Promise<ClaudeAnalysisResult> {
-  try {
-    // Create the message with image content for OpenAI
-    const response = await openai.chat.completions.create({
-      model: "gpt-4.5-preview",
-      max_tokens: 1000,
-      temperature: 0.7,
-      messages: [
-        {
-          role: "system",
-          content: "You are a food analysis assistant that helps identify foods, estimate their caloric content, macronutrients, and evaluate their healthiness. ALWAYS include protein, carbs, and fats values in your response, even if you have to estimate them."
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Please analyze this food image. Identify what food item(s) are in the image and estimate the calorie count, macronutrients, and healthiness. IMPORTANT: You MUST include values for protein, carbs, and fats in grams, even if you need to make an educated guess based on the food type. Return your response in JSON format with these fields: 'title' (a brief name of the food), 'description' (a detailed description of the food including ingredients and preparation style), 'calories' (your estimate of calories as a number), 'protein' (grams of protein), 'carbs' (grams of carbohydrates), 'fats' (grams of fat), and 'healthRating' (an integer from 1 to 5, where 1 means highly processed unhealthy food and 5 means whole/nutritious healthy food)."
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${mediaType};base64,${base64Image}`
+    
+    try {
+      // Send the API request
+      const response = await openai.chat.completions.create({
+        model: "gpt-4.5-preview",
+        messages: [
+          { role: "system", content: systemMessage },
+          { 
+            role: "user",
+            content: [
+              { type: "text", text: userPrompt },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${mimeType};base64,${base64Image}`
+                }
               }
-            }
-          ]
-        }
-      ]
-    });
-
-    // Parse OpenAI's response to extract the JSON data
-    const gptResponse = response.choices[0]?.message?.content || '';
-    console.log('OpenAI response received successfully');
-
-    // Extract the JSON part from OpenAI's response
-    // This regex looks for a JSON object anywhere in the text
-    const jsonMatch = gptResponse.match(/\{[\s\S]*"title"[\s\S]*"description"[\s\S]*"calories"[\s\S]*"healthRating"[\s\S]*\}/);
-
-    if (jsonMatch) {
-      try {
-        // Parse the extracted JSON
-        const parsedResponse = JSON.parse(jsonMatch[0]);
-
+            ]
+          }
+        ],
+        max_tokens: 800
+      });
+      
+      // Check if we got a valid response
+      if (!response.choices || response.choices.length === 0 || !response.choices[0].message.content) {
         return {
-          success: true,
-          name: parsedResponse.title,
-          description: parsedResponse.description,
-          calories: parseInt(parsedResponse.calories, 10) || 0,
-          protein: parseInt(parsedResponse.protein, 10) || 0,
-          carbs: parseInt(parsedResponse.carbs, 10) || 0,
-          fats: parseInt(parsedResponse.fats, 10) || 0,
-          healthScore: parsedResponse.healthRating || 3 // Default to middle value if missing
+          success: false,
+          error: "No valid response from OpenAI"
         };
-      } catch (jsonError) {
-        console.error('Error parsing OpenAI response as JSON:', jsonError);
       }
-    }
-
-    // If JSON extraction fails, attempt to parse the response differently
-    // Look for patterns like "title: Pizza" and "calories: 350"
-    const titleMatch = gptResponse.match(/title[:\s]+([^,\n.]+)/i);
-    const descriptionMatch = gptResponse.match(/description[:\s]+([^,\n.]+)/i);
-    const caloriesMatch = gptResponse.match(/calories[:\s]+(\d+)/i);
-    const proteinMatch = gptResponse.match(/protein[:\s]+(\d+)/i);
-    const carbsMatch = gptResponse.match(/carbs[:\s]+(\d+)/i);
-    const fatsMatch = gptResponse.match(/fats[:\s]+(\d+)/i);
-    const healthRatingMatch = gptResponse.match(/health[Rr]ating[:\s]+(\d+)/i);
-
-    if (titleMatch && caloriesMatch) {
+      
+      // Parse the response
+      const gptResponse = response.choices[0].message.content;
+      console.log('OpenAI response received successfully');
+      
+      // Try to extract and parse JSON
+      const jsonMatch = gptResponse.match(/\{[\s\S]*"name"[\s\S]*"description"[\s\S]*"calories"[\s\S]*"protein"[\s\S]*"carbs"[\s\S]*"fats"[\s\S]*"healthScore"[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsedResponse = JSON.parse(jsonMatch[0]);
+          
+          return {
+            success: true,
+            name: parsedResponse.name,
+            description: parsedResponse.description,
+            calories: parseInt(parsedResponse.calories, 10) || 0,
+            protein: parseInt(parsedResponse.protein, 10) || 0,
+            carbs: parseInt(parsedResponse.carbs, 10) || 0,
+            fats: parseInt(parsedResponse.fats, 10) || 0,
+            healthScore: parseInt(parsedResponse.healthScore, 10) || 0
+          };
+        } catch (jsonError) {
+          console.error('Failed to parse JSON from OpenAI response:', jsonError);
+        }
+      }
+      
+      // Fallback to regex extraction
+      const titleMatch = gptResponse.match(/name[:\s]+([^,\n.]+)/i);
+      const descriptionMatch = gptResponse.match(/description[:\s]+([^,\n.]+)/i);
+      const caloriesMatch = gptResponse.match(/calories[:\s]+(\d+)/i);
+      const proteinMatch = gptResponse.match(/protein[:\s]+(\d+)/i);
+      const carbsMatch = gptResponse.match(/carbs[:\s]+(\d+)/i);
+      const fatsMatch = gptResponse.match(/fats[:\s]+(\d+)/i);
+      const healthScoreMatch = gptResponse.match(/health\s*score[:\s]+(\d+)/i);
+      
       return {
         success: true,
-        name: titleMatch[1].trim(),
-        description: descriptionMatch ? descriptionMatch[1].trim() : titleMatch[1].trim(),
-        calories: parseInt(caloriesMatch[1], 10) || 0,
+        name: titleMatch ? titleMatch[1].trim() : "Unknown Food",
+        description: descriptionMatch ? descriptionMatch[1].trim() : "No description available",
+        calories: caloriesMatch ? parseInt(caloriesMatch[1], 10) : 0,
         protein: proteinMatch ? parseInt(proteinMatch[1], 10) : 0,
         carbs: carbsMatch ? parseInt(carbsMatch[1], 10) : 0,
         fats: fatsMatch ? parseInt(fatsMatch[1], 10) : 0,
-        healthScore: healthRatingMatch ? parseInt(healthRatingMatch[1], 10) : 3
+        healthScore: healthScoreMatch ? parseInt(healthScoreMatch[1], 10) : 0
+      };
+    } catch (apiError) {
+      console.error('OpenAI API error:', apiError);
+      return {
+        success: false,
+        error: `OpenAI API error: ${apiError instanceof Error ? apiError.message : String(apiError)}`
       };
     }
-
+  } catch (error) {
+    console.error('OpenAI analysis error:', error);
     return {
       success: false,
-      error: 'Could not parse OpenAI response'
-    };
-  } catch (openaiError: unknown) {
-    console.error('Error calling OpenAI API:', openaiError);
-
-    // Try to extract the detailed error message
-    let errorMessage = 'Unknown OpenAI API error';
-    if (openaiError instanceof Error) {
-      errorMessage = openaiError.message;
-    }
-
-    return {
-      success: false,
-      error: errorMessage
+      error: `OpenAI analysis failed: ${error instanceof Error ? error.message : String(error)}`
     };
   }
 }
@@ -1100,5 +1068,109 @@ export const analyzeImageStream = async (c: Context<UserEnv>) => {
     console.error('Error in stream analysis:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return c.json({ success: false, message: `Server error: ${errorMessage}` }, 500);
+  }
+};
+
+// Handler for correcting a meal analysis
+export const correctMealAnalysis = async (c: Context<UserEnv>) => {
+  try {
+    // Get the form data containing the image and correction info
+    const formData = await c.req.formData();
+    
+    // Get the image file
+    const imageFile = formData.get('image') as File | null;
+    if (!imageFile) {
+      return c.json({
+        success: false,
+        message: 'No image provided'
+      }, 400);
+    }
+    
+    // Get correction information
+    const previousResult = formData.get('previousResult') as string;
+    const correctionText = formData.get('correctionText') as string;
+    
+    if (!previousResult || !correctionText) {
+      return c.json({
+        success: false,
+        message: 'Previous result and correction text are required'
+      }, 400);
+    }
+    
+    // Log the correction request
+    console.log('Processing correction request:', {
+      previousResult,
+      correctionText
+    });
+    
+    // Process the file
+    const imageBytes = await imageFile.arrayBuffer();
+    const buffer = Buffer.from(imageBytes);
+    
+    // Save the original file to disk temporarily
+    const originalFileFolder = path.join(os.tmpdir(), 'calorie-tracker', 'uploads');
+    await fsPromises.mkdir(originalFileFolder, { recursive: true });
+    
+    const originalFilename = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}.image`;
+    const originalFilePath = path.join(originalFileFolder, originalFilename);
+    await fsPromises.writeFile(originalFilePath, buffer);
+    
+    // Determine the MIME type
+    const originalMimeType = imageFile.type || 'image/jpeg';
+    
+    // Process the image (resize if necessary)
+    const processedImage = await processImageForClaude(originalFilePath, originalMimeType);
+    let processedFilePath = originalFilePath;
+    
+    if (!processedImage.success) {
+      console.warn(`Image processing warning: ${processedImage.error}. Using original image.`);
+    } else {
+      processedFilePath = processedImage.path;
+    }
+    
+    // Use OpenAI to analyze the image with correction context
+    const result = await analyzeImageWithOpenAI(
+      processedImage.success ? processedImage.path : originalFilePath,
+      processedImage.success ? processedImage.mimeType : originalMimeType,
+      { previousResult, correctionText }
+    );
+    
+    if (result.success) {
+      // Log the corrected analysis result
+      console.log('Corrected analysis result:', {
+        name: result.name,
+        calories: result.calories,
+        protein: result.protein || 0,
+        carbs: result.carbs || 0,
+        fats: result.fats || 0,
+        healthScore: result.healthScore
+      });
+      
+      return c.json({
+        success: true,
+        name: result.name,
+        description: result.description,
+        calories: result.calories,
+        protein: result.protein || 0,
+        carbs: result.carbs || 0,
+        fats: result.fats || 0,
+        healthScore: result.healthScore,
+        message: "Food reanalyzed with correction"
+      });
+    } else {
+      // If analysis fails, return error
+      console.error('OpenAI correction analysis failed:', result.error);
+      return c.json({
+        success: false,
+        message: 'Failed to analyze corrected image: ' + result.error
+      }, 500);
+    }
+  } catch (error: unknown) {
+    console.error('API correction error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({
+      success: false,
+      message: `API correction error: ${errorMessage}`
+    }, 500);
   }
 }; 

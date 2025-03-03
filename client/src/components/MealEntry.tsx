@@ -1,20 +1,51 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { MealsApi, MealAnalysisApi, SettingsApi } from '../utils/api';
 import { getSettings } from '../utils/storage';
 
-// Helper function to estimate macronutrients based on calories
-const estimateMacrosFromCalories = (calories: number) => {
-  // Default macronutrient distribution: 30% protein, 50% carbs, 20% fat
-  // Protein: 4 calories per gram
-  // Carbs: 4 calories per gram
-  // Fat: 9 calories per gram
-  return {
-    protein: Math.round((calories * 0.3) / 4),
-    carbs: Math.round((calories * 0.5) / 4),
-    fats: Math.round((calories * 0.2) / 9)
-  };
+// Helper function to create a thumbnail from an image
+const createThumbnail = async (dataUrl: string, maxWidth: number = 500): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        // Calculate new dimensions while maintaining aspect ratio
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > maxWidth) {
+          const ratio = maxWidth / width;
+          width = maxWidth;
+          height = Math.floor(height * ratio);
+        }
+        
+        // Create canvas and draw image with new dimensions
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Get reduced size data URL
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      
+      img.onerror = () => {
+        reject(new Error('Failed to load image'));
+      };
+      
+      img.src = dataUrl;
+    } catch (error) {
+      reject(error);
+    }
+  });
 };
 
 const MealEntry: React.FC = () => {
@@ -31,57 +62,28 @@ const MealEntry: React.FC = () => {
   const [fats, setFats] = useState<number>(0);
   const [healthScore, setHealthScore] = useState<number>(3); // Default to neutral
   const [selectedDate, setSelectedDate] = useState<'today' | 'yesterday'>('today');
+  const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
+  const [correctionText, setCorrectionText] = useState<string>('');
+  const [previousResult, setPreviousResult] = useState<string>('');
+  const [isCorrectingMeal, setIsCorrectingMeal] = useState<boolean>(false);
   const navigate = useNavigate();
 
-  // Function to create a thumbnail from the full image
-  const createThumbnail = (dataUrl: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        // Create a canvas to resize the image
-        const canvas = document.createElement('canvas');
-        // Limit dimensions to a reasonable size for thumbnail (150px)
-        const MAX_WIDTH = 150;
-        const MAX_HEIGHT = 150;
-        
-        let width = img.width;
-        let height = img.height;
-        
-        // Calculate new dimensions while maintaining aspect ratio
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-        
-        // Set canvas dimensions and draw resized image
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-        
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        // Get the compressed image as data URL (JPEG at 80% quality)
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
-      };
-      
-      img.onerror = () => {
-        reject(new Error('Failed to load image'));
-      };
-      
-      img.src = dataUrl;
-    });
+  // Helper function to estimate macronutrients based on calories
+  const estimateMacrosFromCalories = (calories: number) => {
+    // Default distribution: 30% protein, 50% carbs, 20% fat
+    // Protein and carbs = 4 calories per gram, fat = 9 calories per gram
+    const protein = Math.round((calories * 0.30) / 4);
+    const carbs = Math.round((calories * 0.50) / 4);
+    const fats = Math.round((calories * 0.20) / 9);
+    
+    return { protein, carbs, fats };
   };
+
+  // Load default settings
+  useEffect(() => {
+    const settings = getSettings();
+    console.log('Loaded settings:', settings);
+  }, []);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -117,6 +119,9 @@ const MealEntry: React.FC = () => {
       // Use the MealAnalysisApi for image analysis
       const result = await MealAnalysisApi.analyzeImage(image);
       
+      // Save the original result description for potential correction
+      setPreviousResult(`${result.name} (${result.description})`);
+      
       setMealName(result.name);
       setMealDescription(result.description);
       setCalories(result.calories);
@@ -132,6 +137,51 @@ const MealEntry: React.FC = () => {
     }
   };
   
+  const handleOpenCorrectionModal = () => {
+    setCorrectionText(`This is not ${mealName}. This is actually...`);
+    setShowCorrectionModal(true);
+  };
+  
+  const handleCloseModal = () => {
+    setShowCorrectionModal(false);
+  };
+  
+  const handleCorrectMeal = async () => {
+    if (!image || !correctionText) return;
+    
+    setIsCorrectingMeal(true);
+    
+    try {
+      // Send the correction to the API
+      const result = await MealAnalysisApi.correctMealAnalysis(
+        image,
+        previousResult,
+        correctionText
+      );
+      
+      // Update with the corrected values
+      setMealName(result.name);
+      setMealDescription(result.description);
+      setCalories(result.calories);
+      setProtein(result.protein || 0);
+      setCarbs(result.carbs || 0);
+      setFats(result.fats || 0);
+      setHealthScore(result.healthScore);
+      
+      // Close the modal and reset correction text
+      setShowCorrectionModal(false);
+      setCorrectionText('');
+      
+      // Save the new result for potential future corrections
+      setPreviousResult(`${result.name} (${result.description})`);
+    } catch (error) {
+      console.error('Error correcting meal:', error);
+      alert('Error applying correction. Please try again.');
+    } finally {
+      setIsCorrectingMeal(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -176,6 +226,69 @@ const MealEntry: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Correction modal component
+  const CorrectionModal = () => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    
+    useEffect(() => {
+      if (showCorrectionModal && textareaRef.current) {
+        const textarea = textareaRef.current;
+        textarea.focus();
+        // Set cursor at the end of the text
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
+    }, [showCorrectionModal]);
+    
+    if (!showCorrectionModal) return null;
+    
+    return (
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+        onClick={handleCloseModal}
+      >
+        <div 
+          className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="text-xl font-semibold mb-4">Correct Food Recognition</h3>
+          
+          <p className="text-gray-600 mb-4">
+            Please describe what this food actually is, and we'll reanalyze it.
+          </p>
+          
+          <textarea
+            ref={textareaRef}
+            value={correctionText}
+            onChange={(e) => setCorrectionText(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+            rows={4}
+            placeholder="For example: This is not bread, it's actually coffee."
+          />
+          
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={handleCloseModal}
+              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500"
+              disabled={isCorrectingMeal}
+            >
+              Cancel
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleCorrectMeal}
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isCorrectingMeal || !correctionText.trim()}
+            >
+              {isCorrectingMeal ? 'Correcting...' : 'Submit Correction'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -248,6 +361,7 @@ const MealEntry: React.FC = () => {
                   setCarbs(0);
                   setFats(0);
                   setHealthScore(3); // Reset health score
+                  setPreviousResult(''); // Reset previous result
                 }}
                 className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
               >
@@ -292,9 +406,21 @@ const MealEntry: React.FC = () => {
         {mealName && (
           <form onSubmit={handleSubmit}>
             <div className="mb-4">
-              <label htmlFor="mealName" className="block text-gray-700 mb-2">
-                Meal Name
-              </label>
+              <div className="flex justify-between items-center">
+                <label htmlFor="mealName" className="block text-gray-700 mb-2">
+                  Meal Name
+                </label>
+                
+                {/* Correction button */}
+                <button
+                  type="button"
+                  onClick={handleOpenCorrectionModal}
+                  className="text-sm text-blue-600 hover:text-blue-800 focus:outline-none"
+                >
+                  Correct Recognition
+                </button>
+              </div>
+              
               <input
                 type="text"
                 id="mealName"
@@ -398,6 +524,9 @@ const MealEntry: React.FC = () => {
           </form>
         )}
       </div>
+      
+      {/* Correction Modal */}
+      <CorrectionModal />
     </div>
   );
 };
