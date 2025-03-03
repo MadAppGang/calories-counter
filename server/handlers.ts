@@ -3,7 +3,7 @@ import { streamText } from 'hono/streaming';
 import { Anthropic } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import fs from 'fs';
-import { promises as fsPromises } from 'fs';
+import * as fsPromises from 'fs/promises';
 import path from 'path';
 import admin from 'firebase-admin';
 import sharp from 'sharp';
@@ -1310,7 +1310,51 @@ export async function analyzeDescription(c: Context): Promise<Response> {
       });
 
       console.log('Image URL generated:', imageResponse.data[0].url);
-      imageUrl = imageResponse.data[0].url || '';
+      
+      // Download and process the DALL-E generated image
+      try {
+        const dallEUrl = imageResponse.data[0].url || '';
+        if (dallEUrl) {
+          console.log('Downloading DALL-E image and creating thumbnail...');
+          
+          // Fetch the image from DALL-E
+          const imageResponse = await fetch(dallEUrl);
+          if (!imageResponse.ok) {
+            throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
+          }
+          
+          const imageBuffer = await imageResponse.arrayBuffer();
+          
+          // Resize and compress the image using Sharp
+          // Set max width to 500px to keep file size manageable for Firestore
+          const processedBuffer = await sharp(Buffer.from(imageBuffer))
+            .resize({ width: 500, withoutEnlargement: true })
+            .jpeg({ quality: 80 }) // Use JPEG compression with 80% quality
+            .toBuffer();
+          
+          // Convert to base64 data URL
+          const base64Image = processedBuffer.toString('base64');
+          const mimeType = 'image/jpeg';
+          const dataUrl = `data:${mimeType};base64,${base64Image}`;
+          
+          // Use the data URL for the meal image
+          imageUrl = dataUrl;
+          console.log('Image converted to thumbnail data URL successfully');
+          
+          // For debugging, log the size of the data URL
+          const dataSizeKB = Math.round(dataUrl.length / 1024);
+          console.log(`Data URL size: ${dataSizeKB} KB (${dataUrl.length} bytes)`);
+          
+          if (dataUrl.length > 1000000) {
+            console.warn('WARNING: Image data URL is approaching Firestore limit (1MB)');
+          }
+        }
+      } catch (imageError) {
+        console.error('Error processing DALL-E image:', imageError);
+        // Fall back to placeholder image
+        imageUrl = '/placeholder.svg';
+        console.log('Falling back to placeholder image due to processing error');
+      }
     }
 
     // Combine the analysis and image URL
