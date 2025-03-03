@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { MealsApi, MealAnalysisApi, SettingsApi } from '../utils/api';
 import { getSettings } from '../utils/storage';
+import LoadingOverlay from './ui/LoadingOverlay';
 
 // Helper function to create a thumbnail from an image
 const createThumbnail = async (dataUrl: string, maxWidth: number = 500): Promise<string> => {
@@ -67,6 +68,7 @@ const MealEntry: React.FC = (): JSX.Element => {
   const [correctionText, setCorrectionText] = useState<string>('');
   const [previousResult, setPreviousResult] = useState<string>('');
   const [isCorrectingMeal, setIsCorrectingMeal] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>('Analyzing your meal...');
   const navigate = useNavigate();
 
   // Helper function to estimate macronutrients based on calories
@@ -114,6 +116,7 @@ const MealEntry: React.FC = (): JSX.Element => {
   const analyzeImage = async () => {
     if (!image) return;
     
+    setLoadingMessage('Analyzing your delicious meal from the photo...');
     setIsAnalyzing(true);
     
     try {
@@ -156,6 +159,7 @@ const MealEntry: React.FC = (): JSX.Element => {
       return;
     }
     
+    setLoadingMessage('Updating meal information based on your correction...');
     setIsCorrectingMeal(true);
     
     try {
@@ -262,7 +266,9 @@ const MealEntry: React.FC = (): JSX.Element => {
       }
     }, [showCorrectionModal]);
     
-    if (!showCorrectionModal) return null;
+    // Don't show the modal if we're already in the process of correcting the meal
+    // or if the showCorrectionModal state is false
+    if (!showCorrectionModal || isCorrectingMeal) return null;
     
     return (
       <div 
@@ -314,6 +320,8 @@ const MealEntry: React.FC = (): JSX.Element => {
 
   return (
     <div className="container mx-auto p-4 max-w-md">
+      <LoadingOverlay isVisible={isAnalyzing || isCorrectingMeal || isSaving} message={loadingMessage} />
+
       <div className="flex items-center mb-6">
         <button 
           onClick={() => navigate('/')}
@@ -445,6 +453,7 @@ const MealEntry: React.FC = (): JSX.Element => {
               {analysisDescription && (
                 <button
                   onClick={async () => {
+                    setLoadingMessage('Analyzing your meal description...');
                     setIsAnalyzing(true);
                     try {
                       // Send user's description to AI for analysis
@@ -619,8 +628,12 @@ const MealEntry: React.FC = (): JSX.Element => {
             
             <button
               type="submit"
-              className="w-full bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500"
               disabled={isSaving}
+              className="w-full py-2 px-4 bg-green-500 text-white rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500"
+              onClick={() => {
+                if (isSaving) return;
+                setLoadingMessage('Saving your meal...');
+              }}
             >
               {isSaving ? 'Saving...' : 'Save Meal'}
             </button>
