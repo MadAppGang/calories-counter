@@ -1120,13 +1120,10 @@ export const correctMealAnalysis = async (c: Context<UserEnv>) => {
     
     // Process the image (resize if necessary)
     const processedImage = await processImageForClaude(originalFilePath, originalMimeType);
-    let processedFilePath = originalFilePath;
     
     if (!processedImage.success) {
       console.warn(`Image processing warning: ${processedImage.error}. Using original image.`);
-    } else {
-      processedFilePath = processedImage.path;
-    }
+    } 
     
     // Use OpenAI to analyze the image with correction context
     const result = await analyzeImageWithOpenAI(
