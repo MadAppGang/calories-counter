@@ -595,5 +595,65 @@ export const MealAnalysisApi = {
       }
       throw new ApiError('Network error', 500);
     }
-  }
+  },
+  
+  analyzeDescription: async (description: string): Promise<{ 
+    name: string, 
+    description: string, 
+    calories: number, 
+    protein: number, 
+    carbs: number, 
+    fats: number,
+    healthScore: number,
+    imageUrl?: string
+  }> => {
+    try {
+      const token = await getAuthToken();
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/analyze-description`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ description }),
+      });
+      
+      if (!response.ok) {
+        throw new ApiError('Failed to analyze description', response.status);
+      }
+      
+      const data = await response.json();
+      console.log('Raw API response:', data);
+      
+      if (!data.success) {
+        throw new ApiError(data.message || 'Description analysis failed', 400);
+      }
+      
+      // Ensure all values are properly parsed as numbers
+      const result = {
+        name: data.name,
+        description: data.description || data.name,
+        calories: Number(data.calories) || 0,
+        protein: Number(data.protein) || 0,
+        carbs: Number(data.carbs) || 0,
+        fats: Number(data.fats) || 0,
+        healthScore: Number(data.healthScore) || 3,
+        imageUrl: data.imageUrl
+      };
+      
+      console.log('Processed analysis result:', result);
+      return result;
+    } catch (error) {
+      console.error('Error in analyzeDescription:', error);
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError('Network error', 500);
+    }
+  },
 }; 

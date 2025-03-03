@@ -48,7 +48,7 @@ const createThumbnail = async (dataUrl: string, maxWidth: number = 500): Promise
   });
 };
 
-const MealEntry: React.FC = () => {
+const MealEntry: React.FC = (): JSX.Element => {
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [thumbnailImage, setThumbnailImage] = useState<string | null>(null);
@@ -56,6 +56,7 @@ const MealEntry: React.FC = () => {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [mealName, setMealName] = useState<string>('');
   const [mealDescription, setMealDescription] = useState<string>('');
+  const [analysisDescription, setAnalysisDescription] = useState<string>('');
   const [calories, setCalories] = useState<number>(0);
   const [protein, setProtein] = useState<number>(0);
   const [carbs, setCarbs] = useState<number>(0);
@@ -128,7 +129,7 @@ const MealEntry: React.FC = () => {
       setProtein(result.protein || 0);
       setCarbs(result.carbs || 0);
       setFats(result.fats || 0);
-      setHealthScore(result.healthScore); // Save the health score from AI
+      setHealthScore(result.healthScore);
     } catch (error) {
       console.error('Error analyzing image:', error);
       alert('Error analyzing image. Please try again.');
@@ -136,7 +137,7 @@ const MealEntry: React.FC = () => {
       setIsAnalyzing(false);
     }
   };
-  
+
   const handleOpenCorrectionModal = () => {
     setCorrectionText(`This is not ${mealName}. This is actually...`);
     setShowCorrectionModal(true);
@@ -152,12 +153,8 @@ const MealEntry: React.FC = () => {
     setIsCorrectingMeal(true);
     
     try {
-      // Send the correction to the API
-      const result = await MealAnalysisApi.correctMealAnalysis(
-        image,
-        previousResult,
-        correctionText
-      );
+      // Use the description analysis endpoint for corrections
+      const result = await MealAnalysisApi.analyzeDescription(correctionText);
       
       // Update with the corrected values
       setMealName(result.name);
@@ -167,6 +164,12 @@ const MealEntry: React.FC = () => {
       setCarbs(result.carbs || 0);
       setFats(result.fats || 0);
       setHealthScore(result.healthScore);
+      
+      // If there's a new image URL from the analysis, update it
+      if (result.imageUrl) {
+        setImagePreview(result.imageUrl);
+        setThumbnailImage(result.imageUrl);
+      }
       
       // Close the modal and reset correction text
       setShowCorrectionModal(false);
@@ -337,77 +340,158 @@ const MealEntry: React.FC = () => {
           </div>
         </div>
         
-        <div className="mb-6">
-          <label className="block text-gray-700 mb-2">
-            Meal Photo
-          </label>
-          
-          {imagePreview ? (
-            <div className="relative mb-4">
-              <img 
-                src={imagePreview} 
-                alt="Meal preview" 
-                className="w-full h-48 object-cover rounded-md"
-              />
+        <div className="space-y-6">
+          {/* Image Upload Section */}
+          <div>
+            <label className="block text-gray-700 mb-2">
+              Upload Meal Photo
+            </label>
+            
+            {imagePreview ? (
+              <div className="relative mb-4">
+                <img 
+                  src={imagePreview} 
+                  alt="Meal preview" 
+                  className="w-full h-48 object-cover rounded-md"
+                />
+                <button
+                  onClick={() => {
+                    setImage(null);
+                    setImagePreview(null);
+                    setThumbnailImage(null);
+                    setMealName('');
+                    setMealDescription('');
+                    setCalories(0);
+                    setProtein(0);
+                    setCarbs(0);
+                    setFats(0);
+                    setHealthScore(3);
+                    setPreviousResult('');
+                  }}
+                  className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-300 rounded-md p-6 text-center">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="hidden"
+                  id="meal-image"
+                />
+                <label
+                  htmlFor="meal-image"
+                  className="cursor-pointer flex flex-col items-center justify-center"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="text-gray-500">Take a photo or upload an image</span>
+                </label>
+              </div>
+            )}
+
+            {image && !mealName && (
               <button
-                onClick={() => {
-                  setImage(null);
-                  setImagePreview(null);
-                  setThumbnailImage(null);
-                  setMealName('');
-                  setMealDescription('');
-                  setCalories(0);
-                  setProtein(0);
-                  setCarbs(0);
-                  setFats(0);
-                  setHealthScore(3); // Reset health score
-                  setPreviousResult(''); // Reset previous result
-                }}
-                className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
+                onClick={analyzeImage}
+                className="w-full mt-4 bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isAnalyzing}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
+                {isAnalyzing ? 'Analyzing Photo...' : 'Analyze Photo'}
               </button>
-            </div>
-          ) : (
-            <div className="border-2 border-dashed border-gray-300 rounded-md p-6 text-center">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="hidden"
-                id="meal-image"
-              />
-              <label
-                htmlFor="meal-image"
-                className="cursor-pointer flex flex-col items-center justify-center"
+            )}
+          </div>
+
+          {/* Text Description Section */}
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <label className="block text-gray-700 mb-2">
+              Or Describe Your Meal
+            </label>
+            <textarea
+              value={!image ? analysisDescription : ''}
+              onChange={(e) => {
+                if (!image) {
+                  setAnalysisDescription(e.target.value);
+                }
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              rows={3}
+              placeholder="Describe your meal in detail..."
+              disabled={!!image || isAnalyzing}
+            />
+            {!image && analysisDescription && !mealName && (
+              <button
+                onClick={async () => {
+                  setIsAnalyzing(true);
+                  try {
+                    // Send user's description to AI for analysis
+                    const result = await MealAnalysisApi.analyzeDescription(analysisDescription);
+                    console.log('AI Analysis Result:', result); // Debug log
+                    
+                    // Validate that we have the required fields from AI
+                    if (!result.name || !result.description || !result.calories) {
+                      throw new Error('Missing required fields from AI analysis');
+                    }
+                    
+                    // Use AI-generated name and description
+                    setMealName(result.name);
+                    setMealDescription(result.description);
+                    
+                    // Set nutritional values, ensuring we have numbers
+                    setCalories(Number(result.calories) || 0);
+                    setProtein(Number(result.protein) || 0);
+                    setCarbs(Number(result.carbs) || 0);
+                    setFats(Number(result.fats) || 0);
+                    setHealthScore(Number(result.healthScore) || 3);
+                    
+                    // Update image if one was generated
+                    if (result.imageUrl) {
+                      setImagePreview(result.imageUrl);
+                      setThumbnailImage(result.imageUrl);
+                    }
+                    
+                    // Save the AI result for potential corrections
+                    setPreviousResult(`${result.name} (${result.description})`);
+                    
+                    // Clear the analysis input field since we're done with it
+                    setAnalysisDescription('');
+                  } catch (error) {
+                    console.error('Error analyzing description:', error);
+                    alert('Error analyzing description. Please try again.');
+                    // Reset all values on error
+                    setMealName('');
+                    setMealDescription('');
+                    setCalories(0);
+                    setProtein(0);
+                    setCarbs(0);
+                    setFats(0);
+                    setHealthScore(3);
+                    setAnalysisDescription(''); // Clear the input on error
+                  } finally {
+                    setIsAnalyzing(false);
+                  }
+                }}
+                className="w-full mt-4 bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isAnalyzing}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <span className="text-gray-500">Take a photo or upload an image</span>
-              </label>
-            </div>
-          )}
+                {isAnalyzing ? 'Analyzing Description...' : 'Analyze Description'}
+              </button>
+            )}
+          </div>
         </div>
         
-        {imagePreview && !mealName && (
-          <button
-            onClick={analyzeImage}
-            className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-6"
-            disabled={isAnalyzing}
-          >
-            {isAnalyzing ? 'Analyzing...' : 'Analyze Food'}
-          </button>
-        )}
-        
-        {mealName && (
-          <form onSubmit={handleSubmit}>
+        {/* Results form */}
+        {mealName && !isAnalyzing && (
+          <form onSubmit={handleSubmit} className="mt-6">
             <div className="mb-4">
-              <div className="flex justify-between items-center">
-                <label htmlFor="mealName" className="block text-gray-700 mb-2">
+              <div className="flex justify-between items-start mb-4">
+                <label htmlFor="mealName" className="block text-gray-700">
                   Meal Name
                 </label>
                 
@@ -415,7 +499,7 @@ const MealEntry: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleOpenCorrectionModal}
-                  className="text-sm text-blue-600 hover:text-blue-800 focus:outline-none"
+                  className="ml-4 px-4 py-2 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                 >
                   Correct Recognition
                 </button>
@@ -441,6 +525,7 @@ const MealEntry: React.FC = () => {
                 onChange={(e) => setMealDescription(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={3}
+                placeholder="Describe your meal..."
               />
             </div>
             

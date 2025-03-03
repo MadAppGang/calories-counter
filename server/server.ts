@@ -20,7 +20,8 @@ import {
   clearAllMeals,
   analyzeImage,
   analyzeImageStream,
-  correctMealAnalysis
+  correctMealAnalysis,
+  analyzeDescription
 } from './handlers.js';
 
 
@@ -177,6 +178,7 @@ app.post('/api/meals', authMiddleware, addMeal);
 app.delete('/api/meals/:id', authMiddleware, deleteMeal);
 app.delete('/api/meals', authMiddleware, clearAllMeals);
 app.post('/api/analyze-image', optionalAuthMiddleware, analyzeImage);
+app.post('/api/analyze-description', optionalAuthMiddleware, analyzeDescription);
 app.post('/api/correct-meal', optionalAuthMiddleware, correctMealAnalysis);
 app.post('/api/analyze-stream', optionalAuthMiddleware, analyzeImageStream);
 

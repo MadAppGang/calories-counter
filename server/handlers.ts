@@ -1173,4 +1173,131 @@ export const correctMealAnalysis = async (c: Context<UserEnv>) => {
       message: `API correction error: ${errorMessage}`
     }, 500);
   }
-}; 
+};
+
+// Function to analyze text description with Claude AI
+export async function analyzeDescription(c: Context): Promise<Response> {
+  try {
+    const body = await c.req.json();
+    const { description } = body;
+
+    console.log('\n=== Text Recognition Request ===');
+    console.log('Input description:', description);
+
+    if (!description) {
+      console.log('Error: Description is required');
+      return c.json({ 
+        success: false, 
+        message: 'Description is required' 
+      }, 400);
+    }
+
+    // Check for OpenAI API key
+    if (!OPENAI_API_KEY) {
+      console.log('Error: OpenAI API key not set');
+      throw new Error('OPENAI_API_KEY environment variable is not set');
+    }
+
+    const openai = new OpenAI({
+      apiKey: OPENAI_API_KEY
+    });
+
+    console.log('\nSending request to GPT-4...');
+    // First, analyze the description with GPT-4
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: "You are a nutrition analysis assistant. Always respond with valid JSON only, no explanations or other text."
+        },
+        {
+          role: "user",
+          content: `Analyze this meal description and provide nutritional information. Respond ONLY with a JSON object in this exact format, with no additional text or explanation:
+          {
+            "name": "Brief name of the meal",
+            "description": "Detailed description of the meal",
+            "calories": number,
+            "protein": number,
+            "carbs": number,
+            "fats": number,
+            "healthScore": number from 1-5
+          }
+          
+          Meal to analyze: "${description}"`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 500
+    });
+
+    console.log('\nGPT-4 Response received:');
+    console.log(completion.choices[0].message.content);
+
+    // Parse GPT's response with error handling
+    let analysisResult;
+    try {
+      const responseText = completion.choices[0].message.content?.trim() || '';
+      // Try to extract JSON if there's any surrounding text
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.log('Error: No JSON object found in response');
+        throw new Error('No JSON object found in response');
+      }
+      analysisResult = JSON.parse(jsonMatch[0]);
+      
+      console.log('\nParsed analysis result:');
+      console.log(JSON.stringify(analysisResult, null, 2));
+
+      // Validate the required fields
+      const requiredFields = ['name', 'description', 'calories', 'protein', 'carbs', 'fats', 'healthScore'];
+      for (const field of requiredFields) {
+        if (!(field in analysisResult)) {
+          console.log(`Error: Missing required field: ${field}`);
+          throw new Error(`Missing required field: ${field}`);
+        }
+      }
+    } catch (parseError: unknown) {
+      console.error('Error parsing GPT response:', completion.choices[0].message.content);
+      throw new Error(`Failed to parse nutrition analysis: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+    }
+
+    console.log('\nGenerating image with DALL-E...');
+    // Generate an image with DALL-E
+    const imageResponse = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: `A photorealistic image of: ${description}. The image should be well-lit, appetizing, and styled like a professional food photograph.`,
+      n: 1,
+      size: "1024x1024",
+      quality: "standard",
+      style: "natural"
+    });
+
+    console.log('Image URL generated:', imageResponse.data[0].url);
+
+    // Combine the analysis and image URL
+    const result = {
+      success: true,
+      name: analysisResult.name,
+      description: analysisResult.description,  // Use OpenAI's detailed description
+      calories: analysisResult.calories,
+      protein: analysisResult.protein,
+      carbs: analysisResult.carbs,
+      fats: analysisResult.fats,
+      healthScore: analysisResult.healthScore,
+      imageUrl: imageResponse.data[0].url
+    };
+
+    console.log('\n=== Final Response ===');
+    console.log(JSON.stringify(result, null, 2));
+    console.log('=====================\n');
+
+    return c.json(result);
+  } catch (error) {
+    console.error('\nError in analyzeDescription:', error);
+    return c.json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Failed to analyze description' 
+    }, 500);
+  }
+} 
