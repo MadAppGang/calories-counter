@@ -597,7 +597,7 @@ export const MealAnalysisApi = {
     }
   },
   
-  analyzeDescription: async (description: string): Promise<{ 
+  analyzeDescription: async (description: string, previousNutritionalInfo?: string): Promise<{ 
     name: string, 
     description: string, 
     calories: number, 
@@ -617,10 +617,14 @@ export const MealAnalysisApi = {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
+      const body = previousNutritionalInfo 
+        ? { description, previousNutritionalInfo } 
+        : { description };
+
       const response = await fetch(`${API_BASE_URL}/analyze-description`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ description }),
+        body: JSON.stringify(body),
       });
       
       if (!response.ok) {

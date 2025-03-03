@@ -1179,10 +1179,13 @@ export const correctMealAnalysis = async (c: Context<UserEnv>) => {
 export async function analyzeDescription(c: Context): Promise<Response> {
   try {
     const body = await c.req.json();
-    const { description } = body;
+    const { description, previousNutritionalInfo } = body;
 
     console.log('\n=== Text Recognition Request ===');
     console.log('Input description:', description);
+    if (previousNutritionalInfo) {
+      console.log('Previous nutritional info:', previousNutritionalInfo);
+    }
 
     if (!description) {
       console.log('Error: Description is required');
@@ -1202,6 +1205,47 @@ export async function analyzeDescription(c: Context): Promise<Response> {
       apiKey: OPENAI_API_KEY
     });
 
+    // Prepare system message with additional context if we have previous nutritional info
+    let systemMessage = "You are a nutrition analysis assistant. Always respond with valid JSON only, no explanations or other text.";
+    let userMessage = `Analyze this meal description and provide nutritional information. Respond ONLY with a JSON object in this exact format, with no additional text or explanation:
+    {
+      "name": "Brief name of the meal",
+      "description": "Detailed description of the meal",
+      "calories": number,
+      "protein": number,
+      "carbs": number,
+      "fats": number,
+      "healthScore": number from 1-5
+    }
+    
+    Meal to analyze: "${description}"`;
+
+    // If this is a correction, add the previous nutritional info to the prompt
+    if (previousNutritionalInfo) {
+      userMessage = `I'm correcting a previous meal analysis. The previous analysis identified the meal as: 
+      ${previousNutritionalInfo}
+      
+      The user is providing this correction: "${description}"
+      
+      Please analyze this correction and provide COMPLETE updated nutritional information. 
+      DO NOT zero out values unless specifically mentioned in the correction.
+      If the user doesn't mention specific nutrients, estimate reasonable values based on the correction.
+      
+      For example, if the user says "This is actually a chocolate cake", provide complete nutritional 
+      information for a chocolate cake, not zero values.
+      
+      Respond ONLY with a JSON object in this exact format, with no additional text or explanation:
+      {
+        "name": "Brief name of the corrected meal",
+        "description": "Detailed description of the corrected meal",
+        "calories": number (realistic estimate),
+        "protein": number (realistic estimate),
+        "carbs": number (realistic estimate),
+        "fats": number (realistic estimate),
+        "healthScore": number from 1-5 (realistic estimate)
+      }`;
+    }
+
     console.log('\nSending request to GPT-4...');
     // First, analyze the description with GPT-4
     const completion = await openai.chat.completions.create({
@@ -1209,22 +1253,11 @@ export async function analyzeDescription(c: Context): Promise<Response> {
       messages: [
         {
           role: "system",
-          content: "You are a nutrition analysis assistant. Always respond with valid JSON only, no explanations or other text."
+          content: systemMessage
         },
         {
           role: "user",
-          content: `Analyze this meal description and provide nutritional information. Respond ONLY with a JSON object in this exact format, with no additional text or explanation:
-          {
-            "name": "Brief name of the meal",
-            "description": "Detailed description of the meal",
-            "calories": number,
-            "protein": number,
-            "carbs": number,
-            "fats": number,
-            "healthScore": number from 1-5
-          }
-          
-          Meal to analyze: "${description}"`
+          content: userMessage
         }
       ],
       temperature: 0.7,
@@ -1262,30 +1295,35 @@ export async function analyzeDescription(c: Context): Promise<Response> {
       throw new Error(`Failed to parse nutrition analysis: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
     }
 
-    console.log('\nGenerating image with DALL-E...');
-    // Generate an image with DALL-E
-    const imageResponse = await openai.images.generate({
-      model: "dall-e-3",
-      prompt: `A photorealistic image of: ${description}. The image should be well-lit, appetizing, and styled like a professional food photograph.`,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard",
-      style: "natural"
-    });
+    // Skip image generation if this is a correction
+    let imageUrl: string = '';
+    if (!previousNutritionalInfo) {
+      console.log('\nGenerating image with DALL-E...');
+      // Generate an image with DALL-E
+      const imageResponse = await openai.images.generate({
+        model: "dall-e-3",
+        prompt: `A photorealistic image of: ${description}. The image should be well-lit, appetizing, and styled like a professional food photograph.`,
+        n: 1,
+        size: "1024x1024",
+        quality: "standard",
+        style: "natural"
+      });
 
-    console.log('Image URL generated:', imageResponse.data[0].url);
+      console.log('Image URL generated:', imageResponse.data[0].url);
+      imageUrl = imageResponse.data[0].url || '';
+    }
 
     // Combine the analysis and image URL
     const result = {
       success: true,
       name: analysisResult.name,
-      description: analysisResult.description,  // Use OpenAI's detailed description
+      description: analysisResult.description,
       calories: analysisResult.calories,
       protein: analysisResult.protein,
       carbs: analysisResult.carbs,
       fats: analysisResult.fats,
       healthScore: analysisResult.healthScore,
-      imageUrl: imageResponse.data[0].url
+      imageUrl: imageUrl
     };
 
     console.log('\n=== Final Response ===');

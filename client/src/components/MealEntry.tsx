@@ -148,13 +148,37 @@ const MealEntry: React.FC = (): JSX.Element => {
   };
   
   const handleCorrectMeal = async () => {
-    if (!image || !correctionText) return;
+    if (!correctionText) return;
+    
+    // Check if we need the image for correction (only if original recognition was from image)
+    if (image && !imagePreview) {
+      alert('Image is required for correcting image-based recognition');
+      return;
+    }
     
     setIsCorrectingMeal(true);
     
     try {
-      // Use the description analysis endpoint for corrections
-      const result = await MealAnalysisApi.analyzeDescription(correctionText);
+      let result;
+      
+      // If we have an image and it was an image-based recognition, use correctMealAnalysis
+      if (image && imagePreview) {
+        result = await MealAnalysisApi.correctMealAnalysis(image, previousResult, correctionText);
+      } else {
+        // For text-based corrections, include previous nutritional data as context
+        const previousNutritionalInfo = JSON.stringify({
+          name: mealName,
+          description: mealDescription,
+          calories: calories,
+          protein: protein,
+          carbs: carbs,
+          fats: fats,
+          healthScore: healthScore
+        });
+        
+        // Include both the correction text and previous nutritional info
+        result = await MealAnalysisApi.analyzeDescription(correctionText, previousNutritionalInfo);
+      }
       
       // Update with the corrected values
       setMealName(result.name);
@@ -164,12 +188,6 @@ const MealEntry: React.FC = (): JSX.Element => {
       setCarbs(result.carbs || 0);
       setFats(result.fats || 0);
       setHealthScore(result.healthScore);
-      
-      // If there's a new image URL from the analysis, update it
-      if (result.imageUrl) {
-        setImagePreview(result.imageUrl);
-        setThumbnailImage(result.imageUrl);
-      }
       
       // Close the modal and reset correction text
       setShowCorrectionModal(false);
@@ -354,26 +372,28 @@ const MealEntry: React.FC = (): JSX.Element => {
                   alt="Meal preview" 
                   className="w-full h-48 object-cover rounded-md"
                 />
-                <button
-                  onClick={() => {
-                    setImage(null);
-                    setImagePreview(null);
-                    setThumbnailImage(null);
-                    setMealName('');
-                    setMealDescription('');
-                    setCalories(0);
-                    setProtein(0);
-                    setCarbs(0);
-                    setFats(0);
-                    setHealthScore(3);
-                    setPreviousResult('');
-                  }}
-                  className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </button>
+                {!mealName && (
+                  <button
+                    onClick={() => {
+                      setImage(null);
+                      setImagePreview(null);
+                      setThumbnailImage(null);
+                      setMealName('');
+                      setMealDescription('');
+                      setCalories(0);
+                      setProtein(0);
+                      setCarbs(0);
+                      setFats(0);
+                      setHealthScore(3);
+                      setPreviousResult('');
+                    }}
+                    className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="border-2 border-dashed border-gray-300 rounded-md p-6 text-center">
@@ -408,82 +428,80 @@ const MealEntry: React.FC = (): JSX.Element => {
             )}
           </div>
 
-          {/* Text Description Section */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <label className="block text-gray-700 mb-2">
-              Or Describe Your Meal
-            </label>
-            <textarea
-              value={!image ? analysisDescription : ''}
-              onChange={(e) => {
-                if (!image) {
-                  setAnalysisDescription(e.target.value);
-                }
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              rows={3}
-              placeholder="Describe your meal in detail..."
-              disabled={!!image || isAnalyzing}
-            />
-            {!image && analysisDescription && !mealName && (
-              <button
-                onClick={async () => {
-                  setIsAnalyzing(true);
-                  try {
-                    // Send user's description to AI for analysis
-                    const result = await MealAnalysisApi.analyzeDescription(analysisDescription);
-                    console.log('AI Analysis Result:', result); // Debug log
-                    
-                    // Validate that we have the required fields from AI
-                    if (!result.name || !result.description || !result.calories) {
-                      throw new Error('Missing required fields from AI analysis');
-                    }
-                    
-                    // Use AI-generated name and description
-                    setMealName(result.name);
-                    setMealDescription(result.description);
-                    
-                    // Set nutritional values, ensuring we have numbers
-                    setCalories(Number(result.calories) || 0);
-                    setProtein(Number(result.protein) || 0);
-                    setCarbs(Number(result.carbs) || 0);
-                    setFats(Number(result.fats) || 0);
-                    setHealthScore(Number(result.healthScore) || 3);
-                    
-                    // Update image if one was generated
-                    if (result.imageUrl) {
-                      setImagePreview(result.imageUrl);
-                      setThumbnailImage(result.imageUrl);
-                    }
-                    
-                    // Save the AI result for potential corrections
-                    setPreviousResult(`${result.name} (${result.description})`);
-                    
-                    // Clear the analysis input field since we're done with it
-                    setAnalysisDescription('');
-                  } catch (error) {
-                    console.error('Error analyzing description:', error);
-                    alert('Error analyzing description. Please try again.');
-                    // Reset all values on error
-                    setMealName('');
-                    setMealDescription('');
-                    setCalories(0);
-                    setProtein(0);
-                    setCarbs(0);
-                    setFats(0);
-                    setHealthScore(3);
-                    setAnalysisDescription(''); // Clear the input on error
-                  } finally {
-                    setIsAnalyzing(false);
-                  }
-                }}
-                className="w-full mt-4 bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          {/* Text Description Section - Only show when no image is uploaded and no recognition results */}
+          {!image && !mealName && (
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <label className="block text-gray-700 mb-2">
+                Or Describe Your Meal
+              </label>
+              <textarea
+                value={analysisDescription}
+                onChange={(e) => setAnalysisDescription(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={3}
+                placeholder="Describe your meal in detail..."
                 disabled={isAnalyzing}
-              >
-                {isAnalyzing ? 'Analyzing Description...' : 'Analyze Description'}
-              </button>
-            )}
-          </div>
+              />
+              {analysisDescription && (
+                <button
+                  onClick={async () => {
+                    setIsAnalyzing(true);
+                    try {
+                      // Send user's description to AI for analysis
+                      const result = await MealAnalysisApi.analyzeDescription(analysisDescription);
+                      console.log('AI Analysis Result:', result); // Debug log
+                      
+                      // Validate that we have the required fields from AI
+                      if (!result.name || !result.description || !result.calories) {
+                        throw new Error('Missing required fields from AI analysis');
+                      }
+                      
+                      // Use AI-generated name and description
+                      setMealName(result.name);
+                      setMealDescription(result.description);
+                      
+                      // Set nutritional values, ensuring we have numbers
+                      setCalories(Number(result.calories) || 0);
+                      setProtein(Number(result.protein) || 0);
+                      setCarbs(Number(result.carbs) || 0);
+                      setFats(Number(result.fats) || 0);
+                      setHealthScore(Number(result.healthScore) || 3);
+                      
+                      // Update image if one was generated
+                      if (result.imageUrl) {
+                        setImagePreview(result.imageUrl);
+                        setThumbnailImage(result.imageUrl);
+                      }
+                      
+                      // Save the AI result for potential corrections
+                      setPreviousResult(`${result.name} (${result.description})`);
+                      
+                      // Clear the analysis input field since we're done with it
+                      setAnalysisDescription('');
+                    } catch (error) {
+                      console.error('Error analyzing description:', error);
+                      alert('Error analyzing description. Please try again.');
+                      // Reset all values on error
+                      setMealName('');
+                      setMealDescription('');
+                      setCalories(0);
+                      setProtein(0);
+                      setCarbs(0);
+                      setFats(0);
+                      setHealthScore(3);
+                      setAnalysisDescription(''); // Clear the input on error
+                    } finally {
+                      setIsAnalyzing(false);
+                    }
+                  }}
+                  className="w-full mt-4 bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isAnalyzing}
+                >
+                  {isAnalyzing ? 'Analyzing Description...' : 'Analyze Description'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
         
         {/* Results form */}
